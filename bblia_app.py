@@ -1,6 +1,7 @@
 import os, json, urllib.request, urllib.error, secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
 class Handler(BaseHTTPRequestHandler):
@@ -8,9 +9,9 @@ class Handler(BaseHTTPRequestHandler):
   body=json.dumps(obj,ensure_ascii=False).encode()
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_GET(self):
-  if self.path in ('/','/index.html'):
+  if urlsplit(self.path).path in ('/','/index.html'):
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
-  elif self.path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
   else:self.reply(404,{'error':'Nao encontrado'})
  def do_POST(self):
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
