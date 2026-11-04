@@ -1,13 +1,25 @@
 import os, json, urllib.request, urllib.error, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
 LIMIT_LOCK=threading.Lock()
 REQUESTS={}
 DAILY_TOTAL={'day':0,'count':0}
 IN_FLIGHT=threading.BoundedSemaphore(2)
+def weather_for(city):
+ city=str(city).strip()[:90]
+ if not city:return {'error':'Informe a cidade para consultar o tempo.'}
+ headers={'User-Agent':'BBLIA/1.0'}
+ geo='https://geocoding-api.open-meteo.com/v1/search?'+urlencode({'name':city,'count':1,'language':'pt','format':'json'})
+ with urllib.request.urlopen(urllib.request.Request(geo,headers=headers),timeout=10) as res:g=json.load(res)
+ places=g.get('results') or []
+ if not places:return {'error':'Cidade nao encontrada. Peça outra cidade.'}
+ p=places[0]
+ url='https://api.open-meteo.com/v1/forecast?'+urlencode({'latitude':p['latitude'],'longitude':p['longitude'],'current':'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m','daily':'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code','timezone':'auto','forecast_days':3})
+ with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=10) as res:f=json.load(res)
+ return {'local':p.get('name'),'estado':p.get('admin1'),'pais':p.get('country'),'atual':f.get('current'),'proximos_dias':f.get('daily'),'fonte':'Open-Meteo','consulta':'dados meteorologicos atualizados'}
 class Handler(BaseHTTPRequestHandler):
  def reply(self,code,obj):
   body=json.dumps(obj,ensure_ascii=False).encode()
@@ -50,10 +62,24 @@ class Handler(BaseHTTPRequestHandler):
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
  def call_openai(self,key,safe):
   try:
-   payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':'Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Se faltar apenas um detalhe indispensavel, faca uma unica pergunta direta. Se nao houver ferramentas ou permissoes para executar uma acao real (instalar aplicativo, controlar TV Box, alterar painel, acessar computador, pesquisar dados atuais), diga isso de forma curta e precisa; nao finja ter executado, instalado, testado, consultado a internet ou estar trabalhando em segundo plano. Quando puder ajudar sem ferramentas, entregue o resultado ou instrucoes praticas imediatamente. Nunca afirme que uma tarefa foi concluida sem confirmacao verificavel. Para operacoes destrutivas ou que envolvam pagamentos, exija confirmacao explicita. Diferencie o que esta pronto do que ainda falta.','input':safe,'max_output_tokens':700}
+   instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem uma ferramenta de previsao do tempo: use-a sempre que solicitarem clima ou previsao. Se o usuario nao informar cidade e ela nao constar do contexto, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
+   tools=[{'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
+   payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':instructions,'input':safe,'tools':tools,'max_output_tokens':700}
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
-   with urllib.request.urlopen(req,timeout=45) as r: result=json.load(r)
-   answer='\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
+   with urllib.request.urlopen(req,timeout=45) as r:result=json.load(r)
+   calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name')=='consultar_tempo']
+   if calls:
+    outputs=[]
+    for item in calls[:2]:
+     try:
+      args=json.loads(item.get('arguments','{}'))
+      forecast=weather_for(args.get('cidade',''))
+     except Exception:forecast={'error':'Consulta meteorologica indisponivel neste momento'}
+     outputs.append({'type':'function_call_output','call_id':item['call_id'],'output':json.dumps(forecast,ensure_ascii=False)})
+    follow={'model':payload['model'],'instructions':instructions,'previous_response_id':result['id'],'input':outputs,'max_output_tokens':700}
+    req2=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(follow).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+    with urllib.request.urlopen(req2,timeout=45) as r:result=json.load(r)
+   answer='\\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
    usage=result.get('usage',{})
    self.reply(200,{'answer':answer or 'Sem resposta textual.','usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
   except urllib.error.HTTPError as e:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
