@@ -10,6 +10,8 @@ LIMIT_LOCK=threading.Lock()
 REQUESTS={}
 DAILY_TOTAL={'day':0,'count':0}
 IN_FLIGHT=threading.BoundedSemaphore(2)
+IMAGE_USAGE={}
+IMAGE_LOCK=threading.Lock()
 TTS_REQUESTS={}
 TTS_DAILY={'day':0,'count':0}
 TTS_IN_FLIGHT=threading.BoundedSemaphore(1)
@@ -93,6 +95,12 @@ class Handler(BaseHTTPRequestHandler):
    if len(desc)<5 or len(desc)>900:return self.reply(400,{'error':'Descreva a imagem'})
    key=os.getenv('OPENAI_API_KEY','')
    if not key:return self.reply(503,{'error':'Servico nao configurado'})
+   ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
+   day=int(time.time()//86400)
+   with IMAGE_LOCK:
+    token=(day,ip)
+    if IMAGE_USAGE.get(token,0)>=1 or sum(v for (d,_),v in IMAGE_USAGE.items() if d==day)>=8:return self.reply(429,{'error':'Limite diario de imagens de teste atingido'})
+    IMAGE_USAGE[token]=IMAGE_USAGE.get(token,0)+1
    req=urllib.request.Request('https://api.openai.com/v1/images/generations',data=json.dumps({'model':'gpt-image-1-mini','prompt':desc,'size':'1024x1024','quality':'low','n':1}).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=110) as res:result=json.load(res)
    self.reply(200,{'image':'data:image/png;base64,'+result['data'][0]['b64_json']})
