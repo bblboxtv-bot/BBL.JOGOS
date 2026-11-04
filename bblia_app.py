@@ -64,7 +64,29 @@ class Handler(BaseHTTPRequestHandler):
     self.reply(200,weather_for(city))
    except Exception:self.reply(502,{'error':'Servico meteorologico temporariamente indisponivel'})
   else:self.reply(404,{'error':'Nao encontrado'})
+ def realtime_token(self):
+  key=os.getenv('OPENAI_API_KEY','')
+  if not key:return self.reply(503,{'error':'API nao configurada'})
+  try:
+   length=int(self.headers.get('Content-Length','0'))
+   if length>500:return self.reply(413,{'error':'Pedido invalido'})
+   if length:self.rfile.read(length)
+   now=time.time();ip=self.headers.get('X-Forwarded-For',self.client_address[0]).split(',')[0].strip()
+   with LIMIT_LOCK:
+    bucket=REQUESTS.setdefault('realtime:'+ip,[])
+    bucket[:]=[t for t in bucket if now-t<86400]
+    if len(bucket)>=5:return self.reply(429,{'error':'Limite diario de sessoes de voz de teste atingido'})
+    bucket.append(now)
+   session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em portugues brasileiro, respostas curtas, naturais e objetivas. Espere a pessoa terminar de falar e responda em voz.','audio':{'output':{'voice':'marin'}}}}
+   req=urllib.request.Request('https://api.openai.com/v1/realtime/client_secrets',data=json.dumps(session).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+   with urllib.request.urlopen(req,timeout=15) as res:data=json.load(res)
+   value=data.get('value') or data.get('client_secret',{}).get('value')
+   if not value:return self.reply(502,{'error':'Token de voz nao retornado'})
+   return self.reply(200,{'token':value})
+  except urllib.error.HTTPError as e:return self.reply(502,{'error':'Falha ao iniciar voz em tempo real (HTTP %s)'%e.code})
+  except Exception:return self.reply(502,{'error':'Nao foi possivel iniciar a conversa por voz'})
  def do_POST(self):
+  if self.path=='/api/realtime-token':return self.realtime_token()
   if self.path=='/api/voice':return self.voice_audio()
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
   try:
