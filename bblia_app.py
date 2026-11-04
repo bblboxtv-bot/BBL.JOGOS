@@ -85,6 +85,9 @@ class Handler(BaseHTTPRequestHandler):
     if len(bucket)>=5:return self.reply(429,{'error':'Limite diario de sessoes de voz de teste atingido'})
     bucket.append(now)
    session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em portugues brasileiro, respostas curtas, naturais e objetivas. Espere a pessoa terminar de falar e responda em voz.','audio':{'output':{'voice':'marin'}}}}
+   session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Caso a ferramenta retorne erro de conexão de vídeo, explique esse erro sem afirmar que criou o vídeo. Edição ou envio de fotos ainda não está integrado.'
+   session['session']['tools']=[{'type':'function','name':'criar_midia','description':'Criar uma imagem, foto, logomarca ou vídeo e exibir na conversa','parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['image','video']},'prompt':{'type':'string','description':'Descrição visual completa, até 900 caracteres'}},'required':['kind','prompt'],'additionalProperties':False}}]
+   session['session']['tool_choice']='auto'
    req=urllib.request.Request('https://api.openai.com/v1/realtime/client_secrets',data=json.dumps(session).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=15) as res:data=json.load(res)
    value=data.get('value') or data.get('client_secret',{}).get('value')
