@@ -13,7 +13,7 @@ function stopSpeaking(){voiceToken++;if(currentAudio){currentAudio.pause();curre
 async function speak(text){stopSpeaking();const token=voiceToken;const clean=String(text).replace(/https?:\/\/\S+/g,'').slice(0,350);if(!clean.trim())return;try{const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean,voice:voiceOptions[voiceIndex].api})});if(!response.ok)throw Error('voice unavailable');const blob=await response.blob();if(token!==voiceToken)return;const url=URL.createObjectURL(blob);const audio=unlockedAudio||new Audio();audio.src=url;audio.load();currentAudio=audio;await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{audio.pause();reject(Error('audio timeout'))},18000);audio.onended=()=>{clearTimeout(timeout);resolve()};audio.onerror=()=>{clearTimeout(timeout);reject(Error('audio error'))};audio.play().catch(e=>{clearTimeout(timeout);reject(e)})});URL.revokeObjectURL(url);if(currentAudio===audio)currentAudio=null;return}catch(e){if(token!==voiceToken)return}if(!('speechSynthesis' in window))throw Error('Voz indisponível');await new Promise(resolve=>{const timeout=setTimeout(()=>{speechSynthesis.cancel();resolve()},18000);const u=new SpeechSynthesisUtterance(clean);u.lang='pt-BR';u.rate=selectedVoiceRate();u.pitch=voiceOptions[voiceIndex].pitch;const v=selectedVoice();if(v)u.voice=v;u.onend=()=>{clearTimeout(timeout);resolve()};u.onerror=()=>{clearTimeout(timeout);resolve()};speechSynthesis.speak(u)})}
 let muted=localStorage.getItem('bblia_muted')==='1',dictation=null;
 function updateMute(){const b=document.getElementById('mute');b.textContent=muted?'🔇':'🔊';b.classList.toggle('muted',muted);b.setAttribute('aria-label',muted?'Ativar respostas de voz':'Silenciar respostas de voz')}
-function toggleMute(){unlockVoicePlayback();muted=!muted;localStorage.setItem('bblia_muted',muted?'1':'0');updateMute();if(muted)stopSpeaking();status.textContent=muted?'Voz silenciada':'Respostas por voz ativadas'}
+function toggleMute(){unlockVoicePlayback();muted=!muted;localStorage.setItem('bblia_muted',muted?'1':'0');updateMute();if(realtimeAudio)realtimeAudio.muted=muted;if(muted)stopSpeaking();status.textContent=muted?'Voz silenciada':'Respostas por voz ativadas'}
 function dictateMessage(){unlockVoicePlayback();if(voiceMode){status.textContent='Encerre a conversa contínua antes de ditar uma mensagem';return}const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){status.textContent='Ditado indisponível neste navegador. Use o microfone do teclado.';return}if(dictation){dictation.stop();status.textContent='Finalizando sua mensagem...';return}try{const rec=new SR();dictation=rec;rec.lang='pt-BR';rec.interimResults=false;rec.continuous=false;let spoken='';const btn=document.getElementById('dictate');btn.classList.add('listening');status.textContent='🎤 Estou ouvindo sua mensagem';rec.onresult=e=>{spoken=e.results[0][0].transcript.trim();prompt.value=spoken;status.textContent='Mensagem reconhecida. Enviando...'};rec.onerror=e=>{status.textContent=e.error==='not-allowed'?'Autorize o microfone no navegador':'Não foi possível reconhecer a fala'};rec.onend=()=>{if(dictation===rec)dictation=null;btn.classList.remove('listening');if(spoken)sendMessage()};rec.start()}catch(e){dictation=null;document.getElementById('dictate').classList.remove('listening');status.textContent='Ditado indisponível'}}
 
 updateMute();
@@ -21,9 +21,9 @@ let voiceMode=false,recognition=null,waitingVoice=false;
 function setVoiceUI(){const b=document.getElementById('mic');b.classList.toggle('active',voiceMode);document.getElementById('miclabel').textContent=voiceMode?'Parar conversa':'Fale comigo';document.getElementById('mic').textContent=voiceMode?'■':'🎙'}
 let voiceListenTimer=null,voiceRestartTimer=null;
 function clearVoiceTimers(){clearTimeout(voiceListenTimer);clearTimeout(voiceRestartTimer);voiceListenTimer=null;voiceRestartTimer=null}
-function scheduleVoiceListen(delay=250){clearTimeout(voiceRestartTimer);if(!voiceMode||waitingVoice)return;voiceRestartTimer=setTimeout(()=>{voiceRestartTimer=null;if(voiceMode&&!waitingVoice)listenVoice()},delay)}
+function scheduleVoiceListen(delay=250){clearTimeout(voiceRestartTimer);if(!voiceMode||waitingVoice||realtimePC||realtimeConnecting)return;voiceRestartTimer=setTimeout(()=>{voiceRestartTimer=null;if(voiceMode&&!waitingVoice)listenVoice()},delay)}
 function listenVoice(){
- if(!voiceMode||waitingVoice||recognition)return;
+ if(!voiceMode||waitingVoice||recognition||realtimePC||realtimeConnecting)return;
  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR){status.textContent='Reconhecimento de voz indisponível neste navegador. Abra no Safari.';voiceMode=false;setVoiceUI();return}
  const rec=new SR();recognition=rec;let gotSpeech=false;
@@ -33,45 +33,6 @@ function listenVoice(){
  rec.onend=()=>{clearTimeout(voiceListenTimer);if(rec===recognition)recognition=null;if(voiceMode&&!waitingVoice&&document.getElementById('auto').checked)scheduleVoiceListen(350)};
  try{rec.start();status.textContent='🎙️ Pode falar. Estou ouvindo.';voiceListenTimer=setTimeout(()=>{if(rec===recognition&&!gotSpeech&&!waitingVoice){status.textContent='Reativando o microfone...';try{rec.abort()}catch(e){recognition=null;scheduleVoiceListen(350)}}},9500)}
  catch(e){recognition=null;status.textContent='Falha ao abrir microfone; tentando novamente';scheduleVoiceListen(1200)}
-}
-let realtimePC=null,realtimeStream=null,realtimeAudio=null,realtimeChannel=null,realtimeTimer=null,realtimeConnecting=false;
-function endRealtime(){
- clearTimeout(realtimeTimer);realtimeTimer=null;realtimeConnecting=false;
- try{realtimeChannel?.close()}catch(e){};realtimeChannel=null;
- try{realtimePC?.close()}catch(e){};realtimePC=null;
- try{realtimeStream?.getTracks().forEach(t=>t.stop())}catch(e){};realtimeStream=null;
- if(realtimeAudio){realtimeAudio.pause();realtimeAudio.srcObject=null;realtimeAudio.remove();realtimeAudio=null}
-}
-async function startRealtime(){
- if(realtimeConnecting||realtimePC)return;
- realtimeConnecting=true;voiceMode=true;setVoiceUI();status.textContent='Conectando conversa em tempo real...';
- try{
-  if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)throw Error('Este navegador nao permite conversa em tempo real. Abra no Safari.');
-  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-  if(!voiceMode){stream.getTracks().forEach(t=>t.stop());return}realtimeStream=stream;
-  const tokenResponse=await fetch('/api/realtime-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  const data=await tokenResponse.json();if(!tokenResponse.ok)throw Error(data.error||'Falha ao conectar');
-  if(!voiceMode)return;
-  const pc=new RTCPeerConnection();realtimePC=pc;
-  const audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.style.display='none';document.body.append(audio);realtimeAudio=audio;
-  pc.ontrack=e=>{audio.srcObject=e.streams[0];audio.play().catch(()=>{status.textContent='Toque no microfone para permitir o som'})};
-  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
-  const channel=pc.createDataChannel('oai-events');realtimeChannel=channel;
-  channel.onopen=()=>{status.textContent='🎙️ Conectado. Pode falar normalmente.'};
-  channel.onmessage=e=>{try{const ev=JSON.parse(e.data);if(ev.type==='input_audio_buffer.speech_started')status.textContent='🎙️ Ouvindo você...';if(ev.type==='response.created')status.textContent='🔊 Preparando resposta...';if(ev.type==='response.done'){const calls=(ev.response?.output||[]).filter(item=>item.type==='function_call'&&item.name==='criar_midia');for(const call of calls)handleRealtimeMedia(call,channel);if(!calls.length&&!send.disabled)status.textContent='🎙️ Pode fazer a próxima pergunta'}if(ev.type==='error')status.textContent='Erro na conversa: '+(ev.error?.message||'tente novamente')}catch(err){}};
-  pc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(pc.connectionState)&&voiceMode){status.textContent='Conexão de voz interrompida. Toque para reconectar.';voiceMode=false;endRealtime();setVoiceUI()}};
-  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
-  const response=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',headers:{'Authorization':'Bearer '+data.token,'Content-Type':'application/sdp'},body:offer.sdp});
-  if(!response.ok)throw Error('Conexão de áudio recusada ('+response.status+')');
-  await pc.setRemoteDescription({type:'answer',sdp:await response.text()});
-  realtimeTimer=setTimeout(()=>{if(voiceMode){voiceMode=false;endRealtime();setVoiceUI();status.textContent='Sessão de teste encerrada após 2 minutos. Toque para conversar novamente.'}},120000);
-  status.textContent='🎙️ Pode falar normalmente.';realtimeConnecting=false;
- }catch(e){voiceMode=false;endRealtime();setVoiceUI();status.textContent='Não conectou: '+e.message}
-}
-function toggleVoice(){
- if(voiceMode){voiceMode=false;endRealtime();clearVoiceTimers();try{recognition?.stop()}catch(e){};status.textContent='Conversa por voz encerrada';setVoiceUI();return}
- unlockVoicePlayback();if(dictation){dictation.onend=null;dictation.stop();dictation=null;document.getElementById('dictate').classList.remove('listening')}
- startRealtime();
 }
 async function replyByVoice(answer){if(muted){waitingVoice=false;if(voiceMode&&document.getElementById('auto').checked)scheduleVoiceListen();return}status.textContent='🔊 BBLIA falando...';try{await speak(answer)}catch(e){status.textContent='Não foi possível reproduzir a voz'}finally{waitingVoice=false;if(voiceMode&&document.getElementById('auto').checked){status.textContent='🎙️ Pode falar novamente';scheduleVoiceListen()}else if(voiceMode){status.textContent='Toque no microfone para continuar'}}}
 
@@ -189,7 +150,7 @@ async function resumeMedia(){
 
 
 prompt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});
-</script><style>
+</script><script src="/bblia_voice.js"></script><style>
 .work-mode .stage{min-height:100px;flex-direction:row;justify-content:flex-start;gap:20px;padding:16px 115px 16px 25px}.work-mode .mic-main{width:54px;height:54px;font-size:25px;border-width:2px}.work-mode .mic-main:after{inset:-6px}.work-mode .mic-title{font-size:20px;margin:0}.work-mode .mic-hint{display:none}.work-mode .conversation{max-height:65dvh;min-height:38dvh}.work-title{padding:12px 18px;color:#e7c16a;font-weight:700;overflow-wrap:anywhere}.work-field{display:block;margin:16px 0}.work-field input,.work-field textarea{display:block;width:100%;box-sizing:border-box;background:#152247;color:#fff;border:1px solid #6978a8;border-radius:10px;padding:12px;margin-top:6px;font:inherit}.msg pre{overflow:auto;white-space:pre;background:#030714;padding:14px;border-radius:12px;max-width:100%;font-size:13px}.msg section .choice,.msg>.choice{display:inline-block;width:auto;padding:8px;margin:5px;font-size:12px}.integration{border:1px solid #364e87;border-radius:12px;padding:14px;margin:12px 0}.sources a{display:block;color:#9cdfff;padding:7px}.work-mode #attachmentBar{display:flex;flex-wrap:wrap;padding:0 12px}.work-mode #attachmentBar .choice{width:auto;padding:8px;font-size:12px}.work-mode .composer{flex-wrap:wrap}.work-mode .composer textarea{flex-basis:35%}
 </style><script src="/bblia_work.js"></script></body></html>
 
