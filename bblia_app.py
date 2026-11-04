@@ -56,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'media-20261104'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'free-video-20261104'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -85,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
     if len(bucket)>=5:return self.reply(429,{'error':'Limite diario de sessoes de voz de teste atingido'})
     bucket.append(now)
    session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em portugues brasileiro, respostas curtas, naturais e objetivas. Espere a pessoa terminar de falar e responda em voz.','audio':{'output':{'voice':'marin'}}}}
-   session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Caso a ferramenta retorne erro de conexão de vídeo, explique esse erro sem afirmar que criou o vídeo. Edição ou envio de fotos ainda não está integrado.'
+   session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Vídeos usam o LTX Video gratuito com fila e limite. Caso a ferramenta retorne erro ou cota atingida, explique sem afirmar que criou o vídeo. Nunca ofereça contratar um plano pago. Edição ou envio de fotos ainda não está integrado.'
    session['session']['tools']=[{'type':'function','name':'criar_midia','description':'Criar uma imagem, foto, logomarca ou vídeo e exibir na conversa','parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['image','video']},'prompt':{'type':'string','description':'Descrição visual completa, até 900 caracteres'}},'required':['kind','prompt'],'additionalProperties':False}}]
    session['session']['tool_choice']='auto'
    req=urllib.request.Request('https://api.openai.com/v1/realtime/client_secrets',data=json.dumps(session).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
