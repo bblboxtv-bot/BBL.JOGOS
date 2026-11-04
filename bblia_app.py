@@ -85,6 +85,10 @@ class Handler(BaseHTTPRequestHandler):
    tools=[{'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
    tools.append({'type':'function','name':'consultar_mega_sena','description':'Consultar resultados oficiais da Mega-Sena da CAIXA, ultimo sorteio ou numero de concurso','parameters':{'type':'object','properties':{'concurso':{'type':['integer','null'],'description':'Numero do concurso ou null para o mais recente'}},'required':['concurso'],'additionalProperties':False}})
    tools.append({'type':'web_search_preview'})
+   # Force source-backed lookup for questions about current officials and public affairs.
+   recent_terms=('lula','presidente','governo','ministro','eleiç','eleic','política','politica','notícia','noticia','hoje','atual','2026','bolsonaro')
+   needs_fresh=any(term in safe[-1]['content'].lower() for term in recent_terms)
+   if needs_fresh:instructions+=' Hoje e 03/11/2026. Para pessoas publicas, cargos, mandatos, politica e noticias, consulte a web antes de responder; inclua fontes e datas. Lula assumiu mandatos em 2003, 2007 e 2023; nunca afirme que 2013 foi inicio de mandato. Se a busca falhar, diga que nao conseguiu confirmar o estado atual.'
    payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':instructions,'input':safe,'tools':tools,'max_output_tokens':700}
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=45) as r:result=json.load(r)
