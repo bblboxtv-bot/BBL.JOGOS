@@ -1,4 +1,4 @@
-import os, json, urllib.request, urllib.error, threading, time
+import os, json, urllib.request, urllib.error, threading, time, re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, urlencode
@@ -11,12 +11,19 @@ IN_FLIGHT=threading.BoundedSemaphore(2)
 def weather_for(city):
  city=str(city).strip()[:90]
  if not city:return {'error':'Informe a cidade para consultar o tempo.'}
+ match=re.fullmatch(r'(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)',city)
+ if match:
+  lat,lon=map(float,match.groups())
+  if not (-90<=lat<=90 and -180<=lon<=180):return {'error':'Coordenadas invalidas'}
+  p={'name':'localizacao autorizada','latitude':round(lat,2),'longitude':round(lon,2)}
+ else:p=None
  headers={'User-Agent':'BBLIA/1.0'}
  geo='https://geocoding-api.open-meteo.com/v1/search?'+urlencode({'name':city,'count':1,'language':'pt','format':'json'})
- with urllib.request.urlopen(urllib.request.Request(geo,headers=headers),timeout=10) as res:g=json.load(res)
- places=g.get('results') or []
- if not places:return {'error':'Cidade nao encontrada. Peça outra cidade.'}
- p=places[0]
+ if p is None:
+  with urllib.request.urlopen(urllib.request.Request(geo,headers=headers),timeout=10) as res:g=json.load(res)
+  places=g.get('results') or []
+  if not places:return {'error':'Cidade nao encontrada. Peça outra cidade.'}
+  p=places[0]
  url='https://api.open-meteo.com/v1/forecast?'+urlencode({'latitude':p['latitude'],'longitude':p['longitude'],'current':'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m','daily':'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code','timezone':'auto','forecast_days':3})
  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=10) as res:f=json.load(res)
  return {'local':p.get('name'),'estado':p.get('admin1'),'pais':p.get('country'),'atual':f.get('current'),'proximos_dias':f.get('daily'),'fonte':'Open-Meteo','consulta':'dados meteorologicos atualizados'}
@@ -68,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
  def call_openai(self,key,safe):
   try:
-   instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario nao informar cidade e ela nao constar do contexto, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
+   instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario fornecer coordenadas geograficas autorizadas no formato latitude,longitude, use-as como valor da cidade na ferramenta de clima, sem perguntar a cidade. Caso contrario, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
    tools=[{'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
    tools.append({'type':'function','name':'consultar_mega_sena','description':'Consultar resultados oficiais da Mega-Sena da CAIXA, ultimo sorteio ou numero de concurso','parameters':{'type':'object','properties':{'concurso':{'type':['integer','null'],'description':'Numero do concurso ou null para o mais recente'}},'required':['concurso'],'additionalProperties':False}})
    tools.append({'type':'web_search_preview'})
