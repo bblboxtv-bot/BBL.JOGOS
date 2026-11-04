@@ -22,7 +22,7 @@ class MediaError(Exception):
 
 def capabilities():
     return {'image': bool(os.getenv('OPENAI_API_KEY')),
-            'video': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False,
+            'video': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False, 'video_app_daily_limit': None,
             'video_notice': 'Vídeos gratuitos pelo LTX Video, sujeitos a fila, cota e disponibilidade.'}
 
 
@@ -135,8 +135,9 @@ def start_job(kind, prompt, client):
             if usage_key[0] < day:
                 del USAGE[usage_key]
         total = sum(v for (d, k, _), v in USAGE.items() if d == day and k == kind)
-        # Keep total image budget unchanged; allow retries when providers fail.
-        if USAGE.get(token, 0) >= (3 if kind == 'image' else 1) or total >= (8 if kind == 'image' else 2):
+        # Only paid image generation has an app-level daily budget.
+        # Free videos follow the provider's quota without a second daily cap.
+        if kind == 'image' and (USAGE.get(token, 0) >= 3 or total >= 8):
             SLOTS.release()
             raise MediaError('Limite diário de criação atingido. Tente novamente amanhã.', 429)
         USAGE[token] = USAGE.get(token, 0) + 1
