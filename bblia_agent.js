@@ -112,9 +112,9 @@ async function finishWork(bubble,pending){
   let answer=data.answer||data.error||'O trabalho foi interrompido.';
   if(data.status!=='completed')answer='Trabalho '+(data.status==='cancelled'?'interrompido':'parcial')+'. '+(data.error||'Os arquivos já criados foram preservados.');
   if(data.limitations?.length)answer+='\n\n'+data.limitations.join('\n');
-  if(data.validation)answer+='\n\nVerificação automática de estrutura: '+(data.validation.ok?'sem erros detectados.':'há ajustes pendentes.');
+  if(data.validation&&data.kind!=='computador')answer+='\n\nVerificação automática de estrutura: '+(data.validation.ok?'sem erros detectados.':'há ajustes pendentes.');
   if(artifacts.some(f=>f.name==='index.html'))answer+='\nSintaxe JavaScript da prévia: '+(syntaxErrors.length?syntaxErrors.join('; '):'sem erros detectados nos scripts verificáveis.');
-  answer+='\nExecução completa, publicação e integrações externas não foram verificadas automaticamente.';
+  if(data.kind!=='computador')answer+='\nA validação do editor cobre estrutura e sintaxe. Testes de execução e integrações dependem das ferramentas utilizadas.';
   paintResponse(bubble,answer,artifacts,data.sources||[]);
   history.push({role:'assistant',content:answer,artifacts,sources:data.sources||[]});
   delete chat.workJob;await saveChat();notify(data.status==='completed'?'Trabalho entregue':'Arquivos parciais disponíveis');
@@ -131,7 +131,7 @@ async function finishWork(bubble,pending){
   feed.scrollTop=feed.scrollHeight;
  }
 }
-async function runAutonomousWork(text,selected=[]){
+async function runAutonomousWork(text,selected=[],options={}){
  if(!workspaceReady||send.disabled)return{status:'failed',error:'Aguarde o trabalho atual terminar.'};
  const chat=currentChat();let project=currentProject();
  if(!project){project={id:uid(),name:text.slice(0,80),instructions:text.slice(0,6000),files:[]};workspace.projects.push(project);chat.projectId=project.id}
@@ -141,7 +141,7 @@ async function runAutonomousWork(text,selected=[]){
  const label=selected.length?'\n[Referências: '+selected.map(f=>f.name).join(', ')+']':'';
  add('user',text+label);history.push({role:'user',content:text+label});
  const payload={messages:history.slice(-16).map(m=>({role:m.role,content:m.content.slice(0,12000)})),
-  attachments:selected,files,preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
+  attachments:selected,files,use_computer:!!options.useComputer,preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
  while(payload.messages[0]?.role==='assistant')payload.messages.shift();
  send.disabled=true;waitingVoice=true;
  if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();
@@ -181,7 +181,9 @@ async function handleRealtimeWork(call,channel){
   const project=currentProject();const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
   if(typeof args.pedido!=='string'||args.pedido.length<5)throw Error('Descreva o trabalho que deseja criar.');
   if(selected.length>4)throw Error('Use até quatro referências por trabalho.');
-  result=await runAutonomousWork(args.pedido,selected);
+  const useComputer=typeof wantsComputerWork==='function'&&wantsComputerWork(args.pedido);
+  if(useComputer&&!await computerReady())throw Error('Conecte o Commander no menu Computador e TV Box da BBLIA.');
+  result=await runAutonomousWork(args.pedido,selected,{useComputer});
  }catch(error){result={status:'failed',error:error.message}}
  if(channel.readyState==='open'){
   sendRealtimeEvent(channel,{type:'conversation.item.create',item:{type:'function_call_output',call_id:call.call_id,output:JSON.stringify(result)}});

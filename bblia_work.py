@@ -107,7 +107,7 @@ def execute_work_tool(name, args, artifacts):
 
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
-    return {'version': 'autonomous-work-20261104', 'chat_daily_limit': None, 'items': [
+    return {'version': 'computer-connect-20261104', 'chat_daily_limit': None, 'items': [
         {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
         {'id': 'files', 'name': 'Fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Anexe arquivos para análise. Até 5 MB por foto/PDF e 4 anexos.'},
@@ -116,7 +116,7 @@ def integration_status():
         {'id': 'image', 'name': 'Criar e editar imagens', 'state': 'configured' if api else 'missing', 'detail': 'Usa a conexão de imagens do servidor; disponibilidade depende da conta.'},
         {'id': 'video', 'name': 'Vídeos gratuitos', 'state': 'external', 'detail': ('LTX gratuito com conta Hugging Face conectada. Cerca de 4 segundos sem áudio; sujeito à cota externa.' if os.getenv('HF_TOKEN', '').strip() else 'LTX gratuito sem conta conectada. A cota anônima do servidor é compartilhada e pode se esgotar; conexão com conta gratuita ainda necessária.')},
         {'id': 'weather', 'name': 'Previsão do tempo', 'state': 'configured', 'detail': 'Open-Meteo.'},
-        {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Exige uma conexão própria da BBLIA com o computador. Não acessa o Commander desta conversa.'},
+        {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Conexão própria com o Commander disponível no menu Computador e TV Box. Exige autorizar sua conta na BBLIA e selecionar o aparelho.'},
         {'id': 'accounts', 'name': 'E-mail, agenda e Drive', 'state': 'missing', 'detail': 'Exigem autenticação das contas na BBLIA.'},
         {'id': 'sync', 'name': 'Sincronizar aparelhos', 'state': 'missing', 'detail': 'Projetos ficam neste navegador. Use exportar/importar backup para transferir.'}
     ]}
