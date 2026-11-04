@@ -1,9 +1,13 @@
-import os, json, urllib.request, urllib.error, secrets
+import os, json, urllib.request, urllib.error, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
+LIMIT_LOCK=threading.Lock()
+REQUESTS={}
+DAILY_TOTAL={'day':0,'count':0}
+IN_FLIGHT=threading.BoundedSemaphore(2)
 class Handler(BaseHTTPRequestHandler):
  def reply(self,code,obj):
   body=json.dumps(obj,ensure_ascii=False).encode()
@@ -15,9 +19,6 @@ class Handler(BaseHTTPRequestHandler):
   else:self.reply(404,{'error':'Nao encontrado'})
  def do_POST(self):
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
-  password=os.getenv('BBLIA_TEST_PASSWORD','')
-  if not password:return self.reply(503,{'error':'Teste bloqueado ate configurar senha no Render'})
-  if not secrets.compare_digest(self.headers.get('X-BBLIA-Password',''),password):return self.reply(401,{'error':'Senha de teste incorreta'})
   try:
    length=int(self.headers.get('Content-Length','0'))
    if length<1 or length>25000:return self.reply(413,{'error':'Pedido muito grande'})
@@ -28,6 +29,27 @@ class Handler(BaseHTTPRequestHandler):
    if not safe or safe[-1]['role']!='user':return self.reply(400,{'error':'Mensagem invalida'})
    key=os.getenv('OPENAI_API_KEY','')
    if not key:return self.reply(503,{'error':'Chave OpenAI ainda nao configurada no servidor'})
+   # Temporary free-preview guard: 3 requests per IP/day and 60 globally/day.
+   # Counts attempted requests to prevent abuse; resets on restart.
+   ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
+   day=int(time.time()//86400)
+   with LIMIT_LOCK:
+    if DAILY_TOTAL['day']!=day:
+     DAILY_TOTAL.update(day=day,count=0)
+     REQUESTS.clear()
+    if REQUESTS.get(ip,0)>=3:return self.reply(429,{'error':'Limite gratuito de 3 mensagens por dia atingido.'})
+    if DAILY_TOTAL['count']>=60:return self.reply(429,{'error':'Limite de testes do dia atingido. Tente amanha.'})
+    REQUESTS[ip]=REQUESTS.get(ip,0)+1
+    DAILY_TOTAL['count']+=1
+   if not IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Servidor ocupado. Tente novamente em instantes.'})
+   try:
+    self.call_openai(key,safe)
+   finally:
+    IN_FLIGHT.release()
+  except Exception:
+   self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
+ def call_openai(self,key,safe):
+  try:
    payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':'Voce e a BBLIA. Responda em portugues brasileiro, de modo objetivo. Nao enrole, nao prometa execucao sem ferramentas. Seja util e direto.','input':safe,'max_output_tokens':700}
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=45) as r: result=json.load(r)
