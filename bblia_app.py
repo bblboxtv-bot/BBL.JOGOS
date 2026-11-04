@@ -20,6 +20,12 @@ def weather_for(city):
  url='https://api.open-meteo.com/v1/forecast?'+urlencode({'latitude':p['latitude'],'longitude':p['longitude'],'current':'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m','daily':'temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code','timezone':'auto','forecast_days':3})
  with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=10) as res:f=json.load(res)
  return {'local':p.get('name'),'estado':p.get('admin1'),'pais':p.get('country'),'atual':f.get('current'),'proximos_dias':f.get('daily'),'fonte':'Open-Meteo','consulta':'dados meteorologicos atualizados'}
+def mega_sena(concurso=None):
+ base='https://servicebus2.caixa.gov.br/portaldeloterias/api/megasena'
+ url=base+('/'+str(int(concurso)) if concurso else '')
+ req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
+ with urllib.request.urlopen(req,timeout=12) as res:data=json.load(res)
+ return {'concurso':data.get('numero'),'data':data.get('dataApuracao'),'dezenas':data.get('listaDezenas'),'acumulou':data.get('acumulado'),'proximo_concurso':data.get('numeroConcursoProximo'),'proximo_sorteio':data.get('dataProximoConcurso'),'fonte':'CAIXA Loterias'}
 class Handler(BaseHTTPRequestHandler):
  def reply(self,code,obj):
   body=json.dumps(obj,ensure_ascii=False).encode()
@@ -62,24 +68,28 @@ class Handler(BaseHTTPRequestHandler):
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
  def call_openai(self,key,safe):
   try:
-   instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem uma ferramenta de previsao do tempo: use-a sempre que solicitarem clima ou previsao. Se o usuario nao informar cidade e ela nao constar do contexto, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
+   instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario nao informar cidade e ela nao constar do contexto, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
    tools=[{'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
+   tools.append({'type':'function','name':'consultar_mega_sena','description':'Consultar resultados oficiais da Mega-Sena da CAIXA, ultimo sorteio ou numero de concurso','parameters':{'type':'object','properties':{'concurso':{'type':['integer','null'],'description':'Numero do concurso ou null para o mais recente'}},'required':['concurso'],'additionalProperties':False}})
+   tools.append({'type':'web_search_preview'})
    payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':instructions,'input':safe,'tools':tools,'max_output_tokens':700}
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=45) as r:result=json.load(r)
-   calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name')=='consultar_tempo']
-   if calls:
+   for _ in range(2):
+    calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name') in ('consultar_tempo','consultar_mega_sena')]
+    if not calls:break
     outputs=[]
     for item in calls[:2]:
      try:
       args=json.loads(item.get('arguments','{}'))
-      forecast=weather_for(args.get('cidade',''))
-     except Exception:forecast={'error':'Consulta meteorologica indisponivel neste momento'}
-     outputs.append({'type':'function_call_output','call_id':item['call_id'],'output':json.dumps(forecast,ensure_ascii=False)})
-    follow={'model':payload['model'],'instructions':instructions,'previous_response_id':result['id'],'input':outputs,'max_output_tokens':700}
+      if item['name']=='consultar_tempo':info=weather_for(args.get('cidade',''))
+      else:info=mega_sena(args.get('concurso'))
+     except Exception:info={'error':'Fonte oficial indisponivel neste momento. Nao invente resultados.'}
+     outputs.append({'type':'function_call_output','call_id':item['call_id'],'output':json.dumps(info,ensure_ascii=False)})
+    follow={'model':payload['model'],'instructions':instructions,'previous_response_id':result['id'],'input':outputs,'tools':tools,'max_output_tokens':700}
     req2=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(follow).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req2,timeout=45) as r:result=json.load(r)
-   answer='\\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
+   answer='\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
    usage=result.get('usage',{})
    self.reply(200,{'answer':answer or 'Sem resposta textual.','usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
   except urllib.error.HTTPError as e:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
