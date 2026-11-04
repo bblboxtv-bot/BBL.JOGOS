@@ -8,6 +8,9 @@ LIMIT_LOCK=threading.Lock()
 REQUESTS={}
 DAILY_TOTAL={'day':0,'count':0}
 IN_FLIGHT=threading.BoundedSemaphore(2)
+TTS_REQUESTS={}
+TTS_DAILY={'day':0,'count':0}
+TTS_IN_FLIGHT=threading.BoundedSemaphore(1)
 def weather_for(city):
  city=str(city).strip()[:90]
  if not city:return {'error':'Informe a cidade para consultar o tempo.'}
@@ -56,6 +59,7 @@ class Handler(BaseHTTPRequestHandler):
    except Exception:self.reply(502,{'error':'Servico meteorologico temporariamente indisponivel'})
   else:self.reply(404,{'error':'Nao encontrado'})
  def do_POST(self):
+  if self.path=='/api/voice':return self.voice_audio()
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
   try:
    length=int(self.headers.get('Content-Length','0'))
@@ -86,6 +90,35 @@ class Handler(BaseHTTPRequestHandler):
     IN_FLIGHT.release()
   except Exception:
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
+ def voice_audio(self):
+  key=os.getenv('OPENAI_API_KEY','')
+  if not key:return self.reply(503,{'error':'Voz natural indisponivel'})
+  try:
+   length=int(self.headers.get('Content-Length','0'))
+   if length<1 or length>1500:return self.reply(413,{'error':'Texto muito longo'})
+   payload=json.loads(self.rfile.read(length))
+   text=str(payload.get('text','')).strip()
+   voice=str(payload.get('voice','nova'))
+   if not text or len(text)>350 or voice not in ('nova','onyx','shimmer','echo'):return self.reply(400,{'error':'Parametros invalidos'})
+   ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
+   day=int(time.time()//86400)
+   with LIMIT_LOCK:
+    if TTS_DAILY['day']!=day:
+     TTS_DAILY.update(day=day,count=0)
+     TTS_REQUESTS.clear()
+    if TTS_REQUESTS.get(ip,0)>=4 or TTS_DAILY['count']>=25:return self.reply(429,{'error':'Limite de voz de teste atingido'})
+    TTS_REQUESTS[ip]=TTS_REQUESTS.get(ip,0)+1
+    TTS_DAILY['count']+=1
+   if not TTS_IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Voz ocupada'})
+   try:
+    req=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps({'model':'tts-1','voice':voice,'input':text,'response_format':'mp3'}).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+    with urllib.request.urlopen(req,timeout=25) as res:audio=res.read(600000)
+    if not audio or len(audio)>=600000:return self.reply(502,{'error':'Audio indisponivel'})
+    self.send_response(200);self.send_header('Content-Type','audio/mpeg');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(audio)));self.end_headers();self.wfile.write(audio)
+   finally:TTS_IN_FLIGHT.release()
+  except urllib.error.HTTPError as e:
+   self.reply(503,{'error':'Servico de voz indisponivel no momento'})
+  except Exception:self.reply(502,{'error':'Nao foi possivel gerar a voz'})
  def call_openai(self,key,safe):
   try:
    instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario fornecer coordenadas geograficas autorizadas no formato latitude,longitude, use-as como valor da cidade na ferramenta de clima, sem perguntar a cidade. Caso contrario, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
