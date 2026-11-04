@@ -41,6 +41,13 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path in ('/','/index.html'):
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
   elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
+  elif urlsplit(self.path).path=='/api/lottery':
+   try:
+    from urllib.parse import parse_qs
+    contest=parse_qs(urlsplit(self.path).query).get('contest',[''])[0]
+    if contest and (not contest.isdigit() or len(contest)>6):return self.reply(400,{'error':'Concurso invalido'})
+    self.reply(200,mega_sena(contest or None))
+   except Exception:self.reply(502,{'error':'Resultado oficial indisponivel no momento'})
   elif urlsplit(self.path).path=='/api/weather':
    try:
     from urllib.parse import parse_qs
