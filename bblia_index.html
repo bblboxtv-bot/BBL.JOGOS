@@ -33,7 +33,45 @@ function listenVoice(){
  try{rec.start();status.textContent='🎙️ Pode falar. Estou ouvindo.';voiceListenTimer=setTimeout(()=>{if(rec===recognition&&!gotSpeech&&!waitingVoice){status.textContent='Reativando o microfone...';try{rec.abort()}catch(e){recognition=null;scheduleVoiceListen(350)}}},9500)}
  catch(e){recognition=null;status.textContent='Falha ao abrir microfone; tentando novamente';scheduleVoiceListen(1200)}
 }
-function toggleVoice(){unlockVoicePlayback();clearVoiceTimers();if(dictation){dictation.onend=null;dictation.stop();dictation=null;document.getElementById('dictate').classList.remove('listening')}if(voiceMode){voiceMode=false;waitingVoice=false;try{recognition?.stop()}catch(e){};stopSpeaking();status.textContent='Conversa por voz encerrada'}else{voiceMode=true;waitingVoice=false;listenVoice()}setVoiceUI()}
+let realtimePC=null,realtimeStream=null,realtimeAudio=null,realtimeChannel=null,realtimeTimer=null,realtimeConnecting=false;
+function endRealtime(){
+ clearTimeout(realtimeTimer);realtimeTimer=null;realtimeConnecting=false;
+ try{realtimeChannel?.close()}catch(e){};realtimeChannel=null;
+ try{realtimePC?.close()}catch(e){};realtimePC=null;
+ try{realtimeStream?.getTracks().forEach(t=>t.stop())}catch(e){};realtimeStream=null;
+ if(realtimeAudio){realtimeAudio.pause();realtimeAudio.srcObject=null;realtimeAudio.remove();realtimeAudio=null}
+}
+async function startRealtime(){
+ if(realtimeConnecting||realtimePC)return;
+ realtimeConnecting=true;voiceMode=true;setVoiceUI();status.textContent='Conectando conversa em tempo real...';
+ try{
+  if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)throw Error('Este navegador nao permite conversa em tempo real. Abra no Safari.');
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  if(!voiceMode){stream.getTracks().forEach(t=>t.stop());return}realtimeStream=stream;
+  const tokenResponse=await fetch('/api/realtime-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const data=await tokenResponse.json();if(!tokenResponse.ok)throw Error(data.error||'Falha ao conectar');
+  if(!voiceMode)return;
+  const pc=new RTCPeerConnection();realtimePC=pc;
+  const audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.style.display='none';document.body.append(audio);realtimeAudio=audio;
+  pc.ontrack=e=>{audio.srcObject=e.streams[0];audio.play().catch(()=>{status.textContent='Toque no microfone para permitir o som'})};
+  stream.getTracks().forEach(t=>pc.addTrack(t,stream));
+  const channel=pc.createDataChannel('oai-events');realtimeChannel=channel;
+  channel.onopen=()=>{status.textContent='🎙️ Conectado. Pode falar normalmente.'};
+  channel.onmessage=e=>{try{const ev=JSON.parse(e.data);if(ev.type==='input_audio_buffer.speech_started')status.textContent='🎙️ Ouvindo você...';if(ev.type==='response.created')status.textContent='🔊 Preparando resposta...';if(ev.type==='response.done')status.textContent='🎙️ Pode fazer a próxima pergunta';if(ev.type==='error')status.textContent='Erro na conversa: '+(ev.error?.message||'tente novamente')}catch(err){}};
+  pc.onconnectionstatechange=()=>{if(['failed','disconnected','closed'].includes(pc.connectionState)&&voiceMode){status.textContent='Conexão de voz interrompida. Toque para reconectar.';voiceMode=false;endRealtime();setVoiceUI()}};
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);
+  const response=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',headers:{'Authorization':'Bearer '+data.token,'Content-Type':'application/sdp'},body:offer.sdp});
+  if(!response.ok)throw Error('Conexão de áudio recusada ('+response.status+')');
+  await pc.setRemoteDescription({type:'answer',sdp:await response.text()});
+  realtimeTimer=setTimeout(()=>{if(voiceMode){voiceMode=false;endRealtime();setVoiceUI();status.textContent='Sessão de teste encerrada após 2 minutos. Toque para conversar novamente.'}},120000);
+  status.textContent='🎙️ Pode falar normalmente.';realtimeConnecting=false;
+ }catch(e){voiceMode=false;endRealtime();setVoiceUI();status.textContent='Não conectou: '+e.message}
+}
+function toggleVoice(){
+ if(voiceMode){voiceMode=false;endRealtime();clearVoiceTimers();try{recognition?.stop()}catch(e){};status.textContent='Conversa por voz encerrada';setVoiceUI();return}
+ unlockVoicePlayback();if(dictation){dictation.onend=null;dictation.stop();dictation=null;document.getElementById('dictate').classList.remove('listening')}
+ startRealtime();
+}
 async function replyByVoice(answer){if(muted){waitingVoice=false;if(voiceMode&&document.getElementById('auto').checked)scheduleVoiceListen();return}status.textContent='🔊 BBLIA falando...';try{await speak(answer)}catch(e){status.textContent='Não foi possível reproduzir a voz'}finally{waitingVoice=false;if(voiceMode&&document.getElementById('auto').checked){status.textContent='🎙️ Pode falar novamente';scheduleVoiceListen()}else if(voiceMode){status.textContent='Toque no microfone para continuar'}}}
 
 function newChat(){history=[];feed.innerHTML='<div class="intro" id="intro"><h1>Nova conversa</h1><p>O que vamos fazer hoje?</p></div>';usage.textContent='';status.textContent='BBLIA • Versão de teste'}
