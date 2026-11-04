@@ -11,7 +11,7 @@ IN_FLIGHT=threading.BoundedSemaphore(2)
 def weather_for(city):
  city=str(city).strip()[:90]
  if not city:return {'error':'Informe a cidade para consultar o tempo.'}
- match=re.fullmatch(r'(-?\\d{1,2}\\.\\d+),\\s*(-?\\d{1,3}\\.\\d+)',city)
+ match=re.fullmatch(r'(-?[0-9]{1,2}[.][0-9]+), *(-?[0-9]{1,3}[.][0-9]+)',city)
  if match:
   lat,lon=map(float,match.groups())
   if not (-90<=lat<=90 and -180<=lon<=180):return {'error':'Coordenadas invalidas'}
