@@ -85,7 +85,21 @@ class Handler(BaseHTTPRequestHandler):
    return self.reply(200,{'token':value})
   except urllib.error.HTTPError as e:return self.reply(502,{'error':'Falha ao iniciar voz em tempo real (HTTP %s)'%e.code})
   except Exception:return self.reply(502,{'error':'Nao foi possivel iniciar a conversa por voz'})
+ def image_create(self):
+  try:
+   size=int(self.headers.get('Content-Length','0'))
+   if size<2 or size>1800:return self.reply(400,{'error':'Descricao invalida'})
+   desc=str(json.loads(self.rfile.read(size)).get('prompt','')).strip()
+   if len(desc)<5 or len(desc)>900:return self.reply(400,{'error':'Descreva a imagem'})
+   key=os.getenv('OPENAI_API_KEY','')
+   if not key:return self.reply(503,{'error':'Servico nao configurado'})
+   req=urllib.request.Request('https://api.openai.com/v1/images/generations',data=json.dumps({'model':'gpt-image-1-mini','prompt':desc,'size':'1024x1024','quality':'low','n':1}).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
+   with urllib.request.urlopen(req,timeout=110) as res:result=json.load(res)
+   self.reply(200,{'image':'data:image/png;base64,'+result['data'][0]['b64_json']})
+  except urllib.error.HTTPError as e:self.reply(502,{'error':'Falha na geracao de imagem: '+str(e.code)})
+  except Exception:self.reply(502,{'error':'Falha na geracao de imagem'})
  def do_POST(self):
+  if self.path=='/api/image':return self.image_create()
   if self.path=='/api/realtime-token':return self.realtime_token()
   if self.path=='/api/voice':return self.voice_audio()
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
