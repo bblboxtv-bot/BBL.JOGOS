@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
  def call_openai(self,key,safe):
   try:
-   payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':'Voce e a BBLIA. Responda em portugues brasileiro, de modo objetivo. Nao enrole, nao prometa execucao sem ferramentas. Seja util e direto.','input':safe,'max_output_tokens':700}
+   payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':'Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Se faltar apenas um detalhe indispensavel, faca uma unica pergunta direta. Se nao houver ferramentas ou permissoes para executar uma acao real (instalar aplicativo, controlar TV Box, alterar painel, acessar computador, pesquisar dados atuais), diga isso de forma curta e precisa; nao finja ter executado, instalado, testado, consultado a internet ou estar trabalhando em segundo plano. Quando puder ajudar sem ferramentas, entregue o resultado ou instrucoes praticas imediatamente. Nunca afirme que uma tarefa foi concluida sem confirmacao verificavel. Para operacoes destrutivas ou que envolvam pagamentos, exija confirmacao explicita. Diferencie o que esta pronto do que ainda falta.','input':safe,'max_output_tokens':700}
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=45) as r: result=json.load(r)
    answer='\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
