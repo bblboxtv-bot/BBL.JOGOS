@@ -41,6 +41,12 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path in ('/','/index.html'):
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
   elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
+  elif urlsplit(self.path).path=='/api/weather':
+   try:
+    from urllib.parse import parse_qs
+    city=parse_qs(urlsplit(self.path).query).get('location',[''])[0]
+    self.reply(200,weather_for(city))
+   except Exception:self.reply(502,{'error':'Servico meteorologico temporariamente indisponivel'})
   else:self.reply(404,{'error':'Nao encontrado'})
  def do_POST(self):
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
