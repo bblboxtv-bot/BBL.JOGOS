@@ -1,6 +1,8 @@
 import json
 import os
 import time
+import tempfile
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -10,6 +12,26 @@ import bblia_agent as agent
 
 
 class ComputerTests(unittest.TestCase):
+    def test_confidential_client_secret_stays_on_server(self):
+        metadata={'authorization_endpoint':'https://auth.desktopcommander.app/authorize',
+                  'token_endpoint':'https://auth.desktopcommander.app/token',
+                  'registration_endpoint':'https://auth.desktopcommander.app/register',
+                  'resource':pc.MCP_URL}
+        client={'client_id':'private-client','client_secret':'server-only-secret',
+                'token_endpoint_auth_method':'client_secret_basic'}
+        with tempfile.TemporaryDirectory() as directory,patch.object(pc,'_CLIENT_FILE',Path(directory)/'clients.json'),patch.object(pc,'_CLIENTS',{}),patch.object(pc,'oauth_metadata',return_value=metadata):
+            with patch.object(pc,'json_request',return_value=client):
+                started=pc.oauth_start({'state':'s'*43,'code_challenge':'c'*43})
+            self.assertNotIn('server-only-secret',json.dumps(started))
+            with patch.object(pc,'json_request',return_value={'access_token':'user-access'}) as request:
+                result=pc.oauth_token({'client_id':'private-client','client_binding':started['client_binding'],
+                                       'code':'authorization-code','code_verifier':'v'*43})
+            self.assertEqual(request.call_args.kwargs['basic_auth'],('private-client','server-only-secret'))
+            self.assertNotIn('server-only-secret',json.dumps(result))
+            with self.assertRaises(pc.ComputerError):
+                pc.oauth_token({'client_id':'another-client','client_binding':started['client_binding'],
+                                'code':'authorization-code','code_verifier':'v'*43})
+
     def test_oauth_uses_fixed_callback_pkce_and_resource(self):
         metadata={'authorization_endpoint':'https://auth.desktopcommander.app/authorize',
                   'token_endpoint':'https://auth.desktopcommander.app/token',

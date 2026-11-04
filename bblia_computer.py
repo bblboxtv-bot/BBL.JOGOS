@@ -4,13 +4,18 @@ Credentials arrive only on authenticated-by-possession requests over HTTPS.
 They are never global, added to prompts, placed in job snapshots, or logged.
 """
 import copy
+import base64
+import os
+import secrets
+import tempfile
+from pathlib import Path
 import json
 import re
 import threading
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, quote
 
 MCP_URL = 'https://mcp.desktopcommander.app/mcp'
 REDIRECT_URI = 'https://bblia-teste.onrender.com/computer-callback'
@@ -21,6 +26,13 @@ ALLOWED_TOOLS = {'list_devices', 'list_directory', 'get_file_info', 'read_file',
 _METADATA = None
 _METADATA_AT = 0
 _LOCK = threading.Lock()
+_CLIENT_FILE = Path(tempfile.gettempdir()) / "bblia-commander-clients.json"
+_CLIENTS = {}
+try:
+    if _CLIENT_FILE.is_file():
+        _CLIENTS = json.loads(_CLIENT_FILE.read_text())
+except (OSError, ValueError):
+    _CLIENTS = {}
 
 
 class ComputerError(Exception):
@@ -60,8 +72,11 @@ def open_request(request, timeout=35):
         raise ComputerError('Não foi possível alcançar o Commander neste momento.', 502)
 
 
-def json_request(url, payload=None, form=False):
+def json_request(url, payload=None, form=False, basic_auth=None):
     headers = {'Accept': 'application/json'}
+    if basic_auth:
+        encoded = base64.b64encode((quote(basic_auth[0], safe='')+':'+quote(basic_auth[1], safe='')).encode()).decode()
+        headers['Authorization'] = 'Basic '+encoded
     data = None
     if payload is not None:
         data = urlencode(payload).encode() if form else json.dumps(payload).encode()
@@ -119,15 +134,36 @@ def oauth_start(data):
     client_id = client.get('client_id')
     if not isinstance(client_id, str) or not client_id:
         raise ComputerError('O Commander não registrou a BBLIA para autenticação.', 502)
-    if client.get('token_endpoint_auth_method', 'none') != 'none':
-        raise ComputerError('O serviço exige uma configuração adicional de autenticação para a BBLIA.', 503)
+    method = client.get('token_endpoint_auth_method', 'none')
+    binding = None
+    if method != 'none':
+        secret = client.get('client_secret')
+        if method not in ('client_secret_post', 'client_secret_basic') or not isinstance(secret, str) or not secret:
+            raise ComputerError('O serviço exige uma configuração adicional de autenticação para a BBLIA.', 503)
+        binding = secrets.token_urlsafe(32)
+        expires = client.get('client_secret_expires_at') or time.time()+30*86400
+        with _LOCK:
+            for key in list(_CLIENTS):
+                if _CLIENTS[key].get('expires', 0) < time.time():
+                    del _CLIENTS[key]
+            if len(_CLIENTS) >= 1000:
+                raise ComputerError('Muitas conexões foram preparadas. Tente novamente mais tarde.', 429)
+            _CLIENTS[binding] = {'client_id': client_id, 'client_secret': secret, 'method': method, 'expires': expires}
+            # Only the opaque handle goes to the browser. The confidential client
+            # secret stays in the server's private runtime file, not in source.
+            temporary = _CLIENT_FILE.with_suffix('.tmp')
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                json.dump(_CLIENTS, stream)
+            os.replace(temporary, _CLIENT_FILE)
+            os.chmod(_CLIENT_FILE, 0o600)
     params = {'client_id': client_id, 'redirect_uri': REDIRECT_URI, 'response_type': 'code',
               'state': state, 'code_challenge': challenge, 'code_challenge_method': 'S256',
               'resource': metadata['resource']}
     if 'offline_access' in metadata.get('scopes_supported', []):
         params['scope'] = 'offline_access'
     return {'authorization_url': metadata['authorization_endpoint']+'?'+urlencode(params),
-            'client_id': client_id, 'redirect_uri': REDIRECT_URI}
+            'client_id': client_id, 'client_binding': binding, 'redirect_uri': REDIRECT_URI}
 
 
 def oauth_token(data, refresh=False):
@@ -146,7 +182,18 @@ def oauth_token(data, refresh=False):
         if not isinstance(code, str) or not 1 <= len(code) <= 20000 or not isinstance(verifier, str) or not re.fullmatch(r'[A-Za-z0-9._~-]{43,128}', verifier):
             raise ComputerError('Autorização inválida. Inicie novamente na BBLIA.')
         params.update(grant_type='authorization_code', code=code, code_verifier=verifier, redirect_uri=REDIRECT_URI)
-    result = json_request(metadata['token_endpoint'], params, form=True)
+    basic_auth = None
+    binding = data.get('client_binding')
+    if binding:
+        with _LOCK:
+            private = _CLIENTS.get(binding)
+        if not private or private['client_id'] != client_id or private['expires'] < time.time():
+            raise ComputerError('A conexão precisa ser autorizada novamente após a atualização da BBLIA.', 401)
+        if private['method'] == 'client_secret_post':
+            params['client_secret'] = private['client_secret']
+        else:
+            basic_auth = (client_id, private['client_secret'])
+    result = json_request(metadata['token_endpoint'], params, form=True, basic_auth=basic_auth)
     access_token = result.get('access_token')
     if not isinstance(access_token, str) or not 1 <= len(access_token) <= 20000:
         raise ComputerError('O Commander não concluiu a autorização da BBLIA.', 401)

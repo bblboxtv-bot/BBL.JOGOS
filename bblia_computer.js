@@ -24,7 +24,7 @@ async function computerConnection(){
  if(connection.expires_at>Date.now()+60000)return connection;
  if(!connection.refresh_token)throw Error('A autorização do Commander expirou. Reconecte sua conta.');
  if(!computerRefreshPromise)computerRefreshPromise=(async()=>{
-  const tokens=await computerPost('oauth/refresh',{client_id:connection.client_id,refresh_token:connection.refresh_token});
+  const tokens=await computerPost('oauth/refresh',{client_id:connection.client_id,client_binding:connection.client_binding,refresh_token:connection.refresh_token});
   connection={...connection,...tokens,refresh_token:tokens.refresh_token||connection.refresh_token,
    expires_at:Date.now()+Number(tokens.expires_in||3600)*1000};
   await saveComputer(connection);return connection;
@@ -49,7 +49,7 @@ async function connectCommander(){
   const start=await computerPost('oauth/start',{state,code_challenge:challenge});
   const url=new URL(start.authorization_url);
   if(url.protocol!=='https:'||!['mcp.desktopcommander.app','auth.desktopcommander.app'].includes(url.hostname))throw Error('O serviço retornou um endereço de autorização inesperado.');
-  sessionStorage.setItem(OAUTH_FLOW,JSON.stringify({state,verifier,client_id:start.client_id,created:Date.now()}));
+  sessionStorage.setItem(OAUTH_FLOW,JSON.stringify({state,verifier,client_id:start.client_id,client_binding:start.client_binding,created:Date.now()}));
   location.assign(url.href);
  }catch(error){notify(error.message);const el=modalContent('Conectar Commander',error.message);const p=document.createElement('p');p.textContent='A conexão só será ativada depois da autorização na sua conta Commander.';el.append(p)}
 }
@@ -112,8 +112,8 @@ async function finishComputerOAuth(){
  if(!flow||!code||flow.state!==returnedState||Date.now()-flow.created>10*60*1000){notify('O pareamento expirou ou não pertence a este navegador. Conecte novamente.');return showComputerConnection()}
  sessionStorage.removeItem(OAUTH_FLOW);
  try{
-  const tokens=await computerPost('oauth/token',{client_id:flow.client_id,code,code_verifier:flow.verifier});
-  await saveComputer({...tokens,client_id:flow.client_id,expires_at:Date.now()+Number(tokens.expires_in||3600)*1000});
+  const tokens=await computerPost('oauth/token',{client_id:flow.client_id,client_binding:flow.client_binding,code,code_verifier:flow.verifier});
+  await saveComputer({...tokens,client_id:flow.client_id,client_binding:flow.client_binding,expires_at:Date.now()+Number(tokens.expires_in||3600)*1000});
   notify('Conta autorizada. Conferindo seu computador...');
   try{
    const devices=computerDevices((await computerPost('devices',{access_token:tokens.access_token})).result);
