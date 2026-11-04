@@ -131,13 +131,28 @@ function mediaIntent(text){
  if(/\b(imagem|imagens|foto|fotos|fotografia|logomarca|logo|ilustracao|arte|banner|desenho)\b/.test(t))return 'image';
  return null;
 }
+function mediaFailure(bubble,kind,text,error){
+ const raw=String(error?.message||error||'');
+ const message=/[<>]|Unexpected token|JSON|SyntaxError|Traceback/i.test(raw)||raw.length>350?'Não foi possível entregar o vídeo ou a imagem. Tente novamente.':raw;
+ bubble.replaceChildren();const note=document.createElement('p');note.textContent=message;const retry=document.createElement('button');retry.className='subbtn';retry.textContent='Tentar criar novamente';retry.onclick=()=>{if(!send.disabled)generateMedia(kind,text,bubble)};bubble.append(note,retry);
+}
 function renderMedia(bubble,data,text){
- bubble.replaceChildren();const media=document.createElement(data.kind==='video'?'video':'img');
- media.src=data.video||data.image;media.style.cssText='display:block;width:100%;max-width:500px;border-radius:14px';
- if(data.kind==='video'){media.controls=true;media.playsInline=true}else media.alt=text;
- bubble.append(media);const link=document.createElement('a');link.href=media.src;link.download=data.kind==='video'?'bblia-video.mp4':'bblia-imagem.png';link.textContent=data.kind==='video'?'⬇ Abrir e salvar vídeo':'⬇ Salvar imagem';link.style.cssText='display:block;padding:12px;color:#ffdc88';
- if(data.kind==='video'){link.target='_blank';link.rel='noopener'}bubble.append(link);
- if(data.kind==='video'){const note=document.createElement('p');note.className='muted';note.textContent='Salve seu vídeo: o link de reprodução é temporário.';bubble.append(note)}
+ bubble.replaceChildren();const isVideo=data.kind==='video';const media=document.createElement(isVideo?'video':'img');
+ media.style.cssText='display:block;width:100%;max-width:500px;border-radius:14px';
+ const hint=document.createElement('p');hint.className='muted';
+ if(isVideo){
+  media.controls=true;media.playsInline=true;media.preload='auto';media.style.aspectRatio='16 / 9';media.style.background='#000';media.setAttribute('aria-label','Vídeo criado pela BBLIA');
+  hint.textContent='Toque em ▶ para assistir. Salve o vídeo para guardar uma cópia.';
+  media.onloadeddata=()=>{hint.textContent='Vídeo pronto. Toque em ▶ para assistir.';status.textContent='Vídeo pronto para assistir'};
+  media.onerror=()=>{hint.textContent='O vídeo não carregou. Use Abrir vídeo ou tente recarregar o player.';status.textContent='Falha ao carregar o vídeo'};
+ }else media.alt=text;
+ media.src=data.video||data.image;bubble.append(media);
+ const link=document.createElement('a');link.href=media.src;link.download=isVideo?'bblia-video.mp4':'bblia-imagem.png';link.textContent=isVideo?'▶ Abrir vídeo':'⬇ Salvar imagem';link.style.cssText='display:block;padding:12px;color:#ffdc88';
+ if(isVideo){link.target='_blank';link.rel='noopener'}bubble.append(link);
+ if(isVideo){
+  const save=document.createElement('a');save.href=media.src+'?download=1';save.download='bblia-video.mp4';save.textContent='⬇ Baixar vídeo';save.style.cssText=link.style.cssText;bubble.append(save);
+  const reload=document.createElement('button');reload.className='subbtn';reload.textContent='Recarregar vídeo';reload.onclick=()=>{media.load();hint.textContent='Carregando o vídeo...'};bubble.append(hint,reload);
+ }
 }
 async function pollMedia(id,bubble,text){
  const deadline=Date.now()+16*60*1000;let failures=0;
@@ -146,7 +161,7 @@ async function pollMedia(id,bubble,text){
   try{response=await fetch('/api/media/jobs/'+encodeURIComponent(id));data=await response.json();failures=0}catch(e){if(++failures>=5)throw Error('Conexão interrompida. Reabra a página para consultar a criação.');await new Promise(r=>setTimeout(r,3000));continue}
   if(!response.ok)throw Error(data.error||'Não foi possível consultar a criação.');
   if(data.status==='failed'){localStorage.removeItem('bblia_pending_media');throw Error(data.error||'Falha na criação.')}
-  if(data.status==='completed'){renderMedia(bubble,data,text);localStorage.removeItem('bblia_pending_media');status.textContent=data.kind==='video'?'Vídeo criado':'Imagem criada';return data}
+  if(data.status==='completed'){renderMedia(bubble,data,text);localStorage.removeItem('bblia_pending_media');status.textContent=data.kind==='video'?'Vídeo gerado · toque em ▶':'Imagem criada';return data}
   await new Promise(r=>setTimeout(r,2500));
  }
  throw Error('A criação ainda está em andamento. Reabra a página para consultar o resultado.');
@@ -161,7 +176,7 @@ async function generateMedia(kind,text,bubble=null){
   bubble.textContent=kind==='video'?'🎬 Criando seu vídeo gratuitamente. A fila pode levar alguns minutos.':'🎨 Criando sua imagem. Você pode acompanhar por aqui.';
   status.textContent='Criação em andamento';await pollMedia(data.id,bubble,text);
   history.push({role:'user',content:text},{role:'assistant',content:kind==='video'?'Vídeo criado e exibido na conversa.':'Imagem criada e exibida na conversa.'});return {status:'completed',kind,displayed:true};
- }catch(e){bubble.textContent=e.message;status.textContent='Criação não concluída';return {status:'failed',error:e.message}}
+ }catch(e){mediaFailure(bubble,kind,text,e);status.textContent='Criação não concluída';return {status:'failed',error:e.message}}
  finally{send.disabled=false;waitingVoice=false;feed.scrollTop=feed.scrollHeight;if(voiceMode&&!realtimePC&&document.getElementById('auto').checked)scheduleVoiceListen(500)}
 }
 async function resumeMedia(){

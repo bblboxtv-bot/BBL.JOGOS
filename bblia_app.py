@@ -2,7 +2,7 @@ import os, json, urllib.request, urllib.error, threading, time, re, base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, urlencode
-from bblia_media import capabilities, start_job, get_job, MediaError
+from bblia_media import capabilities, start_job, get_job, get_video, MediaError
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
 LOGO=(BASE/'bblia_logo.svg').read_bytes()
@@ -46,6 +46,7 @@ class Handler(BaseHTTPRequestHandler):
   body=json.dumps(obj,ensure_ascii=False).encode()
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_GET(self):
+  if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
   if urlsplit(self.path).path=='/api/media/capabilities':return self.reply(200,capabilities())
   if urlsplit(self.path).path.startswith('/api/media/jobs/'):
    try:return self.reply(200,get_job(urlsplit(self.path).path.rsplit('/',1)[-1]))
@@ -56,7 +57,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'free-video-20261104'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'video-player-20261104'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -71,6 +72,37 @@ class Handler(BaseHTTPRequestHandler):
     self.reply(200,weather_for(city))
    except Exception:self.reply(502,{'error':'Servico meteorologico temporariamente indisponivel'})
   else:self.reply(404,{'error':'Nao encontrado'})
+ def serve_video(self,head=False):
+  try:
+   job_id=urlsplit(self.path).path.split('/')[-2]
+   path=get_video(job_id);size=path.stat().st_size;start=0;end=size-1;code=200
+   requested=self.headers.get('Range')
+   if requested:
+    match=re.fullmatch(r'bytes=(\d*)-(\d*)',requested)
+    if not match or not any(match.groups()):
+     self.send_response(416);self.send_header('Content-Range','bytes */'+str(size));self.send_header('Content-Length','0');self.end_headers();return
+    first,last=match.groups()
+    if first:start=int(first);end=min(int(last),end) if last else end
+    else:start=max(0,size-int(last))
+    if start>=size or end<start:
+     self.send_response(416);self.send_header('Content-Range','bytes */'+str(size));self.send_header('Content-Length','0');self.end_headers();return
+    code=206
+   self.send_response(code);self.send_header('Content-Type','video/mp4');self.send_header('Accept-Ranges','bytes');self.send_header('Content-Length',str(end-start+1));self.send_header('Cache-Control','private, max-age=1800');self.send_header('X-Content-Type-Options','nosniff')
+   if code==206:self.send_header('Content-Range','bytes %s-%s/%s'%(start,end,size))
+   disposition='attachment' if 'download=1' in urlsplit(self.path).query else 'inline'
+   self.send_header('Content-Disposition',disposition+'; filename="bblia-video.mp4"');self.end_headers()
+   if head:return
+   with path.open('rb') as video:
+    video.seek(start);remaining=end-start+1
+    while remaining:
+     chunk=video.read(min(262144,remaining))
+     if not chunk:break
+     self.wfile.write(chunk);remaining-=len(chunk)
+  except MediaError as exc:self.reply(exc.status,{'error':str(exc)})
+  except (BrokenPipeError,ConnectionResetError):pass
+ def do_HEAD(self):
+  if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video(head=True)
+  self.send_response(200 if urlsplit(self.path).path in ('/','/health') else 404);self.send_header('Content-Length','0');self.end_headers()
  def realtime_token(self):
   key=os.getenv('OPENAI_API_KEY','')
   if not key:return self.reply(503,{'error':'API nao configurada'})

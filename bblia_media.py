@@ -3,6 +3,8 @@ import os
 import json
 import secrets
 import re
+import tempfile
+from pathlib import Path
 import threading
 import time
 import urllib.request
@@ -12,6 +14,8 @@ LOCK = threading.Lock()
 SLOTS = threading.BoundedSemaphore(2)
 JOBS = {}
 USAGE = {}
+VIDEO_DIR = Path(tempfile.gettempdir()) / "bblia-video-cache"
+VIDEO_DIR.mkdir(exist_ok=True)
 
 
 class MediaError(Exception):
@@ -118,6 +122,43 @@ def generate_video(prompt):
         raise MediaError('A conexão com o gerador gratuito demorou demais. Tente mais tarde; não houve cobrança.', 504)
 
 
+def cache_video(url, job_id):
+    if not url.startswith(FREE_VIDEO_HOST + '/gradio_api/file='):
+        raise MediaError('O serviço retornou um vídeo inválido.', 502)
+    target = VIDEO_DIR / (job_id + '.mp4')
+    temporary = target.with_suffix('.part')
+    try:
+        with urllib.request.urlopen(url, timeout=45) as response, temporary.open('wb') as output:
+            total = 0
+            first = response.read(65536)
+            if b'ftyp' not in first[:64]:
+                raise MediaError('O gerador não entregou um arquivo de vídeo válido. Tente novamente.', 502)
+            output.write(first)
+            total += len(first)
+            while True:
+                chunk = response.read(262144)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > 40 * 1024 * 1024:
+                    raise MediaError('O vídeo excedeu o tamanho suportado.', 502)
+                output.write(chunk)
+        temporary.replace(target)
+        return target
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise MediaError('O gerador não entregou o arquivo de vídeo. Tente criar novamente; não houve cobrança.', 502)
+
+
+def get_video(job_id):
+    with LOCK:
+        job = JOBS.get(job_id, {})
+        path = job.get('_video_path')
+    if not path or not Path(path).is_file():
+        raise MediaError('Este vídeo expirou ou o servidor reiniciou. Crie novamente.', 404)
+    return Path(path)
+
+
 def start_job(kind, prompt, client):
     if kind not in ('image', 'video') or not isinstance(prompt, str) or not 5 <= len(prompt.strip()) <= 900:
         raise MediaError('Descreva sua imagem ou vídeo em até 900 caracteres.')
@@ -130,6 +171,9 @@ def start_job(kind, prompt, client):
     with LOCK:
         for job_id in list(JOBS):
             if time.time() - JOBS[job_id]['created'] > 3600 and JOBS[job_id]['status'] != 'processing':
+                path = JOBS[job_id].get('_video_path')
+                if path:
+                    Path(path).unlink(missing_ok=True)
                 del JOBS[job_id]
         for usage_key in list(USAGE):
             if usage_key[0] < day:
@@ -147,10 +191,15 @@ def start_job(kind, prompt, client):
     def work():
         try:
             result = generate_image(prompt.strip()) if kind == 'image' else generate_video(prompt.strip())
+            if kind == 'video':
+                path = cache_video(result['video'], job_id)
+                result.update(video='/api/media/jobs/' + job_id + '/video', _video_path=str(path))
             with LOCK:
                 JOBS[job_id].update(status='completed', **result)
+            print('BBLIA_MEDIA completed kind=' + kind, flush=True)
         except Exception as exc:
             message = str(exc) if isinstance(exc, MediaError) else 'Não foi possível concluir a criação. Tente novamente.'
+            print('BBLIA_MEDIA failed kind=' + kind + ' reason=' + message, flush=True)
             with LOCK:
                 JOBS[job_id].update(status='failed', error=message)
                 # Failed free videos and images do not consume the app's success quota.
@@ -166,4 +215,4 @@ def get_job(job_id):
         job = JOBS.get(job_id)
         if job is None:
             raise MediaError('Criação não encontrada ou expirada. O servidor pode ter reiniciado.', 404)
-        return {key: value for key, value in job.items() if key != 'created'}
+        return {key: value for key, value in job.items() if key != 'created' and not key.startswith('_')}
