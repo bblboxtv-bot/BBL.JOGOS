@@ -105,7 +105,15 @@ class Handler(BaseHTTPRequestHandler):
    answer='\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
    usage=result.get('usage',{})
    self.reply(200,{'answer':answer or 'Sem resposta textual.','usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
-  except urllib.error.HTTPError as e:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
+  except urllib.error.HTTPError as e:
+   try:
+    details=json.loads(e.read(2048)).get('error',{})
+    code=details.get('code','')
+   except Exception:code=''
+   if e.code==429:self.reply(503,{'error':'Limite ou saldo da API OpenAI atingido. Verifique os creditos antes de continuar.'})
+   elif e.code==401:self.reply(503,{'error':'Chave da API OpenAI invalida ou sem permissao.'})
+   elif e.code==400:self.reply(502,{'error':'Configuracao de modelo ou ferramenta incompatível na API.','codigo':str(code)[:60]})
+   else:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
   except Exception:self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
 if __name__=='__main__':
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
