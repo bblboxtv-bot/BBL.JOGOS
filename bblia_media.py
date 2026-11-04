@@ -4,6 +4,8 @@ import json
 import secrets
 import re
 import tempfile
+import base64
+import uuid
 from pathlib import Path
 import threading
 import time
@@ -56,13 +58,37 @@ def request_json(url, key, payload=None, timeout=30):
         raise MediaError('O serviço não conseguiu gerar a mídia (HTTP %s). Tente novamente.' % exc.code, 502)
 
 
-def generate_image(prompt):
+def generate_image(prompt, reference=None):
+    if reference:
+        return edit_image(prompt, reference)
     result = request_json('https://api.openai.com/v1/images/generations',
                           os.environ['OPENAI_API_KEY'],
                           {'model': 'gpt-image-1-mini', 'prompt': prompt,
                            'size': '1024x1024', 'quality': 'low', 'n': 1}, timeout=180)
     encoded = result['data'][0]['b64_json']
     return {'image': 'data:image/png;base64,' + encoded}
+
+
+def edit_image(prompt, reference):
+    data = reference['data']
+    mime, encoded = data.split(';base64,', 1)
+    mime = mime.removeprefix('data:')
+    ext = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp'}[mime]
+    boundary = 'bblia' + uuid.uuid4().hex
+    chunks = []
+    fields = {'model': 'gpt-image-1-mini', 'prompt': prompt, 'size': '1024x1024', 'quality': 'low', 'n': '1'}
+    for name, value in fields.items():
+        chunks.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+name+'"\r\n\r\n'+value+'\r\n').encode())
+    chunks.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="image"; filename="reference.'+ext+'"\r\nContent-Type: '+mime+'\r\n\r\n').encode())
+    chunks.append(base64.b64decode(encoded, validate=True))
+    chunks.append(('\r\n--'+boundary+'--\r\n').encode())
+    req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=b''.join(chunks), headers={'Authorization': 'Bearer '+os.environ['OPENAI_API_KEY'], 'Content-Type': 'multipart/form-data; boundary='+boundary})
+    try:
+        with urllib.request.urlopen(req, timeout=180) as response:
+            result = json.load(response)
+        return {'image': 'data:image/png;base64,'+result['data'][0]['b64_json']}
+    except urllib.error.HTTPError as exc:
+        raise MediaError('Não foi possível editar a foto (HTTP %s). Confira a disponibilidade do serviço de imagens.' % exc.code, 503)
 
 
 # Fixed public demo endpoint: no provider key, billing, or paid fallback.
@@ -159,9 +185,14 @@ def get_video(job_id):
     return Path(path)
 
 
-def start_job(kind, prompt, client):
+def start_job(kind, prompt, client, reference=None):
     if kind not in ('image', 'video') or not isinstance(prompt, str) or not 5 <= len(prompt.strip()) <= 900:
         raise MediaError('Descreva sua imagem ou vídeo em até 900 caracteres.')
+    if reference:
+        from bblia_work import attachment_parts
+        attachment_parts([reference])
+        if reference.get('type') != 'image' or kind != 'image':
+            raise MediaError('Anexe uma imagem para editar.')
     if not capabilities()[kind]:
         raise MediaError('A geração de imagens ainda precisa conectar a conta OpenAI.', 503)
     if not SLOTS.acquire(blocking=False):
@@ -181,16 +212,13 @@ def start_job(kind, prompt, client):
         total = sum(v for (d, k, _), v in USAGE.items() if d == day and k == kind)
         # Only paid image generation has an app-level daily budget.
         # Free videos follow the provider's quota without a second daily cap.
-        if kind == 'image' and (USAGE.get(token, 0) >= 3 or total >= 8):
-            SLOTS.release()
-            raise MediaError('Limite diário de criação atingido. Tente novamente amanhã.', 429)
         USAGE[token] = USAGE.get(token, 0) + 1
         job_id = secrets.token_urlsafe(24)
         JOBS[job_id] = {'id': job_id, 'kind': kind, 'status': 'processing', 'created': time.time()}
 
     def work():
         try:
-            result = generate_image(prompt.strip()) if kind == 'image' else generate_video(prompt.strip())
+            result = generate_image(prompt.strip(), reference) if kind == 'image' else generate_video(prompt.strip())
             if kind == 'video':
                 path = cache_video(result['video'], job_id)
                 result.update(video='/api/media/jobs/' + job_id + '/video', _video_path=str(path))
@@ -216,3 +244,4 @@ def get_job(job_id):
         if job is None:
             raise MediaError('Criação não encontrada ou expirada. O servidor pode ter reiniciado.', 404)
         return {key: value for key, value in job.items() if key != 'created' and not key.startswith('_')}
+
