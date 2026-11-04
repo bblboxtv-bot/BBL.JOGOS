@@ -1,3 +1,4 @@
+from bblia_agent import start_work, get_work, cancel_work, WorkError
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from bblia_work import prepare_messages, work_tools, execute_work_tool, integration_status
@@ -45,12 +46,15 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_GET(self):
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
+  if urlsplit(self.path).path.startswith('/api/work/jobs/'):
+   try:return self.reply(200,get_work(urlsplit(self.path).path.rsplit('/',1)[-1]))
+   except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
   if urlsplit(self.path).path=='/api/integrations':return self.reply(200,integration_status())
   if urlsplit(self.path).path=='/api/media/capabilities':return self.reply(200,capabilities())
   if urlsplit(self.path).path.startswith('/api/media/jobs/'):
    try:return self.reply(200,get_job(urlsplit(self.path).path.rsplit('/',1)[-1]))
    except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
-  if urlsplit(self.path).path in ('/bblia_work.js','/bblia_voice.js'):
+  if urlsplit(self.path).path in ('/bblia_work.js','/bblia_voice.js','/bblia_agent.js'):
    body=(BASE/urlsplit(self.path).path.lstrip('/')).read_bytes()
    self.send_response(200);self.send_header('Content-Type','application/javascript; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if urlsplit(self.path).path in ('/','/index.html'):
@@ -59,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'voice-continuous-20261104'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'autonomous-work-20261104'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -115,6 +119,8 @@ class Handler(BaseHTTPRequestHandler):
    session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em português brasileiro de forma natural e objetiva, concluindo toda a resposta. Espere a pessoa terminar de falar. Ignore barulhos de máquinas, impactos, vento, conversas de fundo e sons sem fala clara dirigida a você. Não responda com confirmações como entendi a ruídos. Se não houver fala compreensível, permaneça em silêncio aguardando. Não encerre a conversa por silêncio; o usuário encerra pelo botão.','audio':{'input':{'noise_reduction':{'type':'near_field'},'transcription':{'model':'gpt-4o-mini-transcribe','language':'pt'},'turn_detection':{'type':'server_vad','threshold':0.75,'prefix_padding_ms':300,'silence_duration_ms':1000,'create_response':True,'interrupt_response':False}},'output':{'voice':'marin'}}}}
    session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Vídeos usam o LTX Video gratuito com fila e limite. Caso a ferramenta retorne erro ou cota atingida, explique sem afirmar que criou o vídeo. Nunca ofereça contratar um plano pago. Fotos e arquivos podem ser anexados na conversa de texto para análise. Edição de fotos está disponível no botão Editar foto após anexar.'
    session['session']['tools']=[{'type':'function','name':'criar_midia','description':'Criar uma imagem, foto, logomarca ou vídeo e exibir na conversa','parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['image','video']},'prompt':{'type':'string','description':'Descrição visual completa, até 900 caracteres'}},'required':['kind','prompt'],'additionalProperties':False}}]
+   session['session']['tools'].append({'type':'function','name':'fazer_trabalho','description':'Criar ou alterar um painel, PDV, site, sistema, aplicativo ou projeto a partir do pedido e dos anexos da conversa. Executa etapas e entrega arquivos.','parameters':{'type':'object','properties':{'pedido':{'type':'string','description':'Pedido completo preservando os requisitos do usuário'}},'required':['pedido'],'additionalProperties':False}})
+   session['session']['instructions']+=' Para criar ou alterar sistemas, painéis, PDV, sites, código ou aplicativos, use fazer_trabalho. A interface tem os anexos de referência da conversa. Escolha detalhes comuns sem perguntar e aguarde o resultado real antes de confirmar entrega.'
    session['session']['tool_choice']='auto'
    req=urllib.request.Request('https://api.openai.com/v1/realtime/client_secrets',data=json.dumps(session).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=15) as res:data=json.load(res)
@@ -135,6 +141,16 @@ class Handler(BaseHTTPRequestHandler):
   except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
   except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
  def do_POST(self):
+  if self.path.startswith('/api/work/jobs/') and self.path.endswith('/cancel'):
+   try:return self.reply(200,cancel_work(self.path.split('/')[-2]))
+   except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
+  if self.path=='/api/work/jobs':
+   try:
+    length=int(self.headers.get('Content-Length','0'))
+    if not 1<=length<=30000000:return self.reply(413,{'error':'Pedido muito grande'})
+    return self.reply(202,start_work(json.loads(self.rfile.read(length))))
+   except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
+   except (ValueError,TypeError):return self.reply(400,{'error':'Pedido de trabalho inválido'})
   if self.path in ('/api/image','/api/media/jobs'):return self.media_create()
   if self.path=='/api/realtime-token':return self.realtime_token()
   if self.path=='/api/voice':return self.voice_audio()

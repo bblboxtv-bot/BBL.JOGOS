@@ -107,7 +107,8 @@ def execute_work_tool(name, args, artifacts):
 
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
-    return {'version': 'video-quota-20261104', 'chat_daily_limit': None, 'items': [
+    return {'version': 'autonomous-work-20261104', 'chat_daily_limit': None, 'items': [
+        {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
         {'id': 'files', 'name': 'Fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Anexe arquivos para análise. Até 5 MB por foto/PDF e 4 anexos.'},
         {'id': 'artifacts', 'name': 'Criar arquivos e projetos', 'state': 'configured' if api else 'missing', 'detail': 'Arquivos de código e texto para baixar. Compilação de APK ainda não conectada.'},

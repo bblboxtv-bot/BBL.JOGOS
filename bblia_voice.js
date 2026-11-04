@@ -64,8 +64,8 @@ function handleRealtimeEvent(event,channel){
  }
  if(event.type==='response.done'){
   realtimeResponseActive=false;
-  const calls=(event.response?.output||[]).filter(item=>item.type==='function_call'&&item.name==='criar_midia');
-  for(const call of calls)Promise.resolve(handleRealtimeMedia(call,channel)).finally(()=>{if(channel===realtimeChannel)syncRealtimeMicrophone()});
+  const calls=(event.response?.output||[]).filter(item=>item.type==='function_call'&&['criar_midia','fazer_trabalho'].includes(item.name));
+  for(const call of calls)Promise.resolve(call.name==='fazer_trabalho'?handleRealtimeWork(call,channel):handleRealtimeMedia(call,channel)).finally(()=>{if(channel===realtimeChannel)syncRealtimeMicrophone()});
   syncRealtimeMicrophone();
   // response.done can precede the end of actual speaker playback.
   if(!realtimeOutputActive&&!send.disabled)status.textContent='🎙️ Pode fazer a próxima pergunta';
