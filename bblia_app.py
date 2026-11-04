@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlencode
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
+LOGO=(BASE/'bblia_logo.svg').read_bytes()
 LIMIT_LOCK=threading.Lock()
 REQUESTS={}
 DAILY_TOTAL={'day':0,'count':0}
@@ -43,6 +44,8 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   if urlsplit(self.path).path in ('/','/index.html'):
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
+  elif urlsplit(self.path).path=='/bblia_logo.svg':
+   self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
   elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
