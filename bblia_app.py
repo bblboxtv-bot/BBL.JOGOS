@@ -59,7 +59,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'workbench-20261104'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'video-quota-20261104'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs

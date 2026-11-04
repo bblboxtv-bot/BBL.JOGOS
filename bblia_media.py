@@ -21,15 +21,17 @@ VIDEO_DIR.mkdir(exist_ok=True)
 
 
 class MediaError(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, code=None):
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 def capabilities():
     return {'image': bool(os.getenv('OPENAI_API_KEY')),
             'video': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False, 'video_app_daily_limit': None,
-            'video_notice': 'Vídeos gratuitos pelo LTX Video, sujeitos a fila, cota e disponibilidade.'}
+            'video_account_connected': bool(os.getenv('HF_TOKEN', '').strip()),
+            'video_notice': 'Vídeos gratuitos pelo LTX Video, sujeitos à cota do Hugging Face e à disponibilidade da fila.'}
 
 
 def request_json(url, key, payload=None, timeout=30):
@@ -95,47 +97,81 @@ def edit_image(prompt, reference):
 FREE_VIDEO_HOST = 'https://lightricks-ltx-video-distilled.hf.space'
 
 
+def free_video_headers():
+    headers = {'Content-Type': 'application/json', 'User-Agent': 'BBLIA/1.0'}
+    token = os.getenv('HF_TOKEN', '').strip()
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    return headers
+
+
 def free_video_error(details):
+    # The public /call endpoint hides some upstream errors as `data: null`.
+    # Queue events retain the structured ZeroGPU quota/authentication error.
     text = str(details).lower()
     if any(term in text for term in ('quota', 'limit', 'exceed')):
-        return MediaError('A cota gratuita de vídeo foi atingida. Aguarde a renovação e tente novamente. Nenhuma cobrança será feita.', 429)
-    if any(term in text for term in ('sign in', 'log in', 'login', 'unauth', 'forbidden')):
-        return MediaError('O serviço gratuito está pedindo acesso pelo Hugging Face. A geração não foi concluída e não houve cobrança.', 503)
-    return MediaError('O gerador gratuito de vídeo está indisponível ou não concluiu o pedido. Tente mais tarde. Nenhuma cobrança será feita.', 503)
+        if os.getenv('HF_TOKEN', '').strip():
+            message = 'A cota gratuita de vídeo da conta Hugging Face foi atingida. Aguarde a renovação da cota. Nenhuma cobrança foi feita pela BBLIA.'
+        else:
+            message = 'A cota gratuita de vídeo usada pelo servidor está esgotada. É necessário conectar uma conta gratuita Hugging Face ou aguardar a renovação da cota. Nenhuma cobrança foi feita pela BBLIA.'
+        return MediaError(message, 429, 'video_quota_exceeded')
+    if any(term in text for term in ('sign in', 'log in', 'login', 'unauth', 'forbidden', 'token invalid')):
+        return MediaError('A conexão gratuita com o Hugging Face precisa ser autenticada. O vídeo não foi criado.', 503, 'video_auth_required')
+    if 'queue' in text and any(term in text for term in ('full', 'busy')):
+        return MediaError('A fila do gerador gratuito está cheia. Tente novamente mais tarde.', 503, 'video_queue_full')
+    return MediaError('O gerador gratuito de vídeo não concluiu o pedido. O vídeo não foi criado e não houve cobrança pela BBLIA.', 503, 'video_provider_error')
 
 
 def generate_video(prompt):
+    headers = free_video_headers()
     parameters = [prompt, 'blurry, distorted, inconsistent motion, jittery',
                   None, None, 480, 832, 'text-to-video', 4.0, 9, 42, True, 1.0, False]
-    endpoint = FREE_VIDEO_HOST + '/gradio_api/call/text_to_video'
-    request = urllib.request.Request(endpoint, data=json.dumps({'data': parameters}).encode(),
-                                     headers={'Content-Type': 'application/json', 'User-Agent': 'BBLIA/1.0'})
+    session = uuid.uuid4().hex
     try:
+        # Resolve the function index from the live contract, instead of assuming
+        # it stays the same when the provider changes its UI.
+        config_req = urllib.request.Request(FREE_VIDEO_HOST + '/config', headers=headers)
+        with urllib.request.urlopen(config_req, timeout=30) as response:
+            config = json.load(response)
+        dependency = next((item for item in config.get('dependencies', [])
+                           if item.get('api_name') == 'text_to_video'), None)
+        if not dependency or not isinstance(dependency.get('id'), int):
+            raise MediaError('O gerador gratuito mudou sua integração. A conexão precisa ser atualizada.', 503, 'video_contract_changed')
+        payload = {'data': parameters, 'fn_index': dependency['id'], 'session_hash': session}
+        request = urllib.request.Request(FREE_VIDEO_HOST + '/gradio_api/queue/join',
+                                         data=json.dumps(payload).encode(), headers=headers)
         with urllib.request.urlopen(request, timeout=30) as response:
-            event_id = json.load(response)['event_id']
+            event_id = json.load(response).get('event_id')
         if not isinstance(event_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,100}', event_id):
-            raise MediaError('O gerador gratuito retornou um pedido inválido.', 502)
-        event = ''
+            raise MediaError('O gerador gratuito retornou um pedido inválido.', 502, 'video_invalid_response')
         deadline = time.monotonic() + 900
-        # Gradio streams heartbeat/complete/error SSE events while the free GPU is queued.
-        with urllib.request.urlopen(endpoint + '/' + event_id, timeout=60) as response:
+        stream = urllib.request.Request(FREE_VIDEO_HOST + '/gradio_api/queue/data?session_hash=' + session,
+                                        headers=headers)
+        with urllib.request.urlopen(stream, timeout=60) as response:
             for raw in response:
                 if time.monotonic() > deadline:
-                    raise MediaError('A fila gratuita demorou demais. Tente mais tarde; não houve cobrança.', 504)
+                    raise MediaError('A fila gratuita demorou demais. Tente mais tarde.', 504, 'video_timeout')
                 line = raw.decode('utf-8').strip()
-                if line.startswith('event:'):
-                    event = line[6:].strip()
-                elif line.startswith('data:') and event in ('complete', 'error'):
-                    data = json.loads(line[5:])
-                    if event == 'error':
-                        raise free_video_error(data)
-                    if not isinstance(data, list) or not data:
-                        raise free_video_error('empty result')
-                    file_data = data[0].get('video', {})
-                    url = file_data.get('url', '')
-                    if not url.startswith(FREE_VIDEO_HOST + '/gradio_api/file='):
-                        raise MediaError('O serviço retornou um vídeo inválido.', 502)
-                    return {'video': url, 'provider': 'ltx-free', 'free': True}
+                if not line.startswith('data:'):
+                    continue
+                event = json.loads(line[5:])
+                if not isinstance(event, dict) or event.get('event_id') not in (None, event_id):
+                    continue
+                if event.get('msg') in ('queue_full', 'unexpected_error'):
+                    raise free_video_error(event)
+                if event.get('msg') != 'process_completed':
+                    continue
+                output = event.get('output') or {}
+                if not event.get('success') or not isinstance(output, dict) or output.get('error'):
+                    raise free_video_error(output)
+                data = output.get('data')
+                if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+                    raise MediaError('O gerador não entregou o arquivo de vídeo.', 502, 'video_invalid_response')
+                file_data = data[0].get('video') or {}
+                url = file_data.get('url', '') if isinstance(file_data, dict) else ''
+                if not isinstance(url, str) or not url.startswith(FREE_VIDEO_HOST + '/gradio_api/file='):
+                    raise MediaError('O serviço retornou um vídeo inválido.', 502, 'video_invalid_response')
+                return {'video': url, 'provider': 'ltx-free', 'free': True}
         raise free_video_error('stream ended')
     except urllib.error.HTTPError as exc:
         details = exc.read(3000).decode('utf-8', 'replace')
@@ -145,7 +181,7 @@ def generate_video(prompt):
             details += ' quota'
         raise free_video_error(details)
     except (TimeoutError, OSError):
-        raise MediaError('A conexão com o gerador gratuito demorou demais. Tente mais tarde; não houve cobrança.', 504)
+        raise MediaError('A conexão com o gerador gratuito demorou demais. Tente mais tarde.', 504, 'video_timeout')
 
 
 def cache_video(url, job_id):
@@ -229,7 +265,7 @@ def start_job(kind, prompt, client, reference=None):
             message = str(exc) if isinstance(exc, MediaError) else 'Não foi possível concluir a criação. Tente novamente.'
             print('BBLIA_MEDIA failed kind=' + kind + ' reason=' + message, flush=True)
             with LOCK:
-                JOBS[job_id].update(status='failed', error=message)
+                JOBS[job_id].update(status='failed', error=message, error_code=exc.code if isinstance(exc, MediaError) else None)
                 # Failed free videos and images do not consume the app's success quota.
                 USAGE[token] = max(0, USAGE.get(token, 0) - 1)
         finally:

@@ -107,13 +107,13 @@ def execute_work_tool(name, args, artifacts):
 
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
-    return {'version': 'workbench-20261104', 'chat_daily_limit': None, 'items': [
+    return {'version': 'video-quota-20261104', 'chat_daily_limit': None, 'items': [
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
         {'id': 'files', 'name': 'Fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Anexe arquivos para análise. Até 5 MB por foto/PDF e 4 anexos.'},
         {'id': 'artifacts', 'name': 'Criar arquivos e projetos', 'state': 'configured' if api else 'missing', 'detail': 'Arquivos de código e texto para baixar. Compilação de APK ainda não conectada.'},
         {'id': 'github', 'name': 'GitHub público', 'state': 'configured', 'detail': 'Leitura de arquivos públicos. Repositórios privados e publicação ainda não conectados.'},
         {'id': 'image', 'name': 'Criar e editar imagens', 'state': 'configured' if api else 'missing', 'detail': 'Usa a conexão de imagens do servidor; disponibilidade depende da conta.'},
-        {'id': 'video', 'name': 'Vídeos gratuitos', 'state': 'external', 'detail': 'LTX gratuito, cerca de 4 segundos sem áudio. Depende da fila, cota e disponibilidade externa.'},
+        {'id': 'video', 'name': 'Vídeos gratuitos', 'state': 'external', 'detail': ('LTX gratuito com conta Hugging Face conectada. Cerca de 4 segundos sem áudio; sujeito à cota externa.' if os.getenv('HF_TOKEN', '').strip() else 'LTX gratuito sem conta conectada. A cota anônima do servidor é compartilhada e pode se esgotar; conexão com conta gratuita ainda necessária.')},
         {'id': 'weather', 'name': 'Previsão do tempo', 'state': 'configured', 'detail': 'Open-Meteo.'},
         {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Exige uma conexão própria da BBLIA com o computador. Não acessa o Commander desta conversa.'},
         {'id': 'accounts', 'name': 'E-mail, agenda e Drive', 'state': 'missing', 'detail': 'Exigem autenticação das contas na BBLIA.'},
