@@ -2,6 +2,7 @@ import os, json, urllib.request, urllib.error, threading, time, re, base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, urlencode
+from bblia_media import capabilities, start_job, get_job, MediaError
 BASE=Path(__file__).resolve().parent
 HTML=(BASE/'bblia_index.html').read_bytes()
 LOGO=(BASE/'bblia_logo.svg').read_bytes()
@@ -45,13 +46,17 @@ class Handler(BaseHTTPRequestHandler):
   body=json.dumps(obj,ensure_ascii=False).encode()
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_GET(self):
+  if urlsplit(self.path).path=='/api/media/capabilities':return self.reply(200,capabilities())
+  if urlsplit(self.path).path.startswith('/api/media/jobs/'):
+   try:return self.reply(200,get_job(urlsplit(self.path).path.rsplit('/',1)[-1]))
+   except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
   if urlsplit(self.path).path in ('/','/index.html'):
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
   elif urlsplit(self.path).path=='/bblia-logo.jpg':
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA'})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'media-20261104'})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -87,27 +92,19 @@ class Handler(BaseHTTPRequestHandler):
    return self.reply(200,{'token':value})
   except urllib.error.HTTPError as e:return self.reply(502,{'error':'Falha ao iniciar voz em tempo real (HTTP %s)'%e.code})
   except Exception:return self.reply(502,{'error':'Nao foi possivel iniciar a conversa por voz'})
- def image_create(self):
+ def media_create(self):
   try:
-   size=int(self.headers.get('Content-Length','0'))
-   if size<2 or size>1800:return self.reply(400,{'error':'Descricao invalida'})
-   desc=str(json.loads(self.rfile.read(size)).get('prompt','')).strip()
-   if len(desc)<5 or len(desc)>900:return self.reply(400,{'error':'Descreva a imagem'})
-   key=os.getenv('OPENAI_API_KEY','')
-   if not key:return self.reply(503,{'error':'Servico nao configurado'})
+   length=int(self.headers.get('Content-Length','0'))
+   if not 2<=length<=5000:return self.reply(400,{'error':'Descrição inválida'})
+   data=json.loads(self.rfile.read(length))
+   if not isinstance(data,dict):return self.reply(400,{'error':'Pedido inválido'})
    ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
-   day=int(time.time()//86400)
-   with IMAGE_LOCK:
-    token=(day,ip)
-    if IMAGE_USAGE.get(token,0)>=1 or sum(v for (d,_),v in IMAGE_USAGE.items() if d==day)>=8:return self.reply(429,{'error':'Limite diario de imagens de teste atingido'})
-    IMAGE_USAGE[token]=IMAGE_USAGE.get(token,0)+1
-   req=urllib.request.Request('https://api.openai.com/v1/images/generations',data=json.dumps({'model':'gpt-image-1-mini','prompt':desc,'size':'1024x1024','quality':'low','n':1}).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
-   with urllib.request.urlopen(req,timeout=110) as res:result=json.load(res)
-   self.reply(200,{'image':'data:image/png;base64,'+result['data'][0]['b64_json']})
-  except urllib.error.HTTPError as e:self.reply(502,{'error':'Falha na geracao de imagem: '+str(e.code)})
-  except Exception:self.reply(502,{'error':'Falha na geracao de imagem'})
+   job=start_job(data.get('kind','image'),data.get('prompt',''),ip)
+   return self.reply(202,job)
+  except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
+  except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
  def do_POST(self):
-  if self.path=='/api/image':return self.image_create()
+  if self.path in ('/api/image','/api/media/jobs'):return self.media_create()
   if self.path=='/api/realtime-token':return self.realtime_token()
   if self.path=='/api/voice':return self.voice_audio()
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
@@ -175,6 +172,10 @@ class Handler(BaseHTTPRequestHandler):
    tools=[{'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
    tools.append({'type':'function','name':'consultar_mega_sena','description':'Consultar resultados oficiais da Mega-Sena da CAIXA, ultimo sorteio ou numero de concurso','parameters':{'type':'object','properties':{'concurso':{'type':['integer','null'],'description':'Numero do concurso ou null para o mais recente'}},'required':['concurso'],'additionalProperties':False}})
    tools.append({'type':'web_search_preview'})
+   instructions+=' Você pode criar fotos, imagens, logomarcas, ilustrações e banners com criar_imagem. Para pedidos de criação, use a ferramenta, não responda apenas com instruções. Para vídeos, use criar_video. Essas ferramentas encaminham a geração à interface; nunca invente arquivos ou links. Não prometa edição de fotos, pois envio de foto ainda não está integrado.'
+   for name,description in [('criar_imagem','Criar uma nova imagem, foto, logomarca, banner ou ilustração a partir de uma descrição'),('criar_video','Criar um novo vídeo a partir de uma descrição')]:
+    tools.append({'type':'function','name':name,'description':description,'parameters':{'type':'object','properties':{'descricao':{'type':'string','description':'Descrição visual completa em até 900 caracteres, preservando os detalhes do pedido'}},'required':['descricao'],'additionalProperties':False}})
+
    # Force source-backed lookup for questions about current officials and public affairs.
    recent_terms=('lula','presidente','governo','ministro','eleiç','eleic','política','politica','notícia','noticia','hoje','atual','2026','bolsonaro')
    needs_fresh=any(term in safe[-1]['content'].lower() for term in recent_terms)
@@ -183,6 +184,11 @@ class Handler(BaseHTTPRequestHandler):
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=45) as r:result=json.load(r)
    for _ in range(2):
+    media_calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name') in ('criar_imagem','criar_video')]
+    if media_calls:
+     item=media_calls[0]
+     args=json.loads(item.get('arguments','{}'))
+     return self.reply(200,{'action':{'kind':'image' if item['name']=='criar_imagem' else 'video','prompt':str(args.get('descricao',''))[:900]}})
     calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name') in ('consultar_tempo','consultar_mega_sena')]
     if not calls:break
     outputs=[]
@@ -211,3 +217,4 @@ class Handler(BaseHTTPRequestHandler):
   except Exception:self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
 if __name__=='__main__':
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
