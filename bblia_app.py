@@ -264,10 +264,16 @@ class Handler(BaseHTTPRequestHandler):
    if length<1 or length>30000000:return self.reply(413,{'error':'Pedido muito grande'})
    data=json.loads(self.rfile.read(length))
    safe=prepare_messages(data)
-   key=os.getenv('OPENAI_API_KEY','')
-   if not key:return self.reply(503,{'error':'Conexão de IA não configurada no servidor'})
+   provider=str(data.get('provider') or 'gemini').lower()
+   if provider not in ('gemini','openai'):return self.reply(400,{'error':'Provedor de IA inválido.'})
    if not IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Servidor ocupado. Tente novamente em instantes.'})
    try:
+    if provider=='gemini':
+     from bblia_gemini import responder, GeminiError
+     try:return self.reply(200,responder(safe))
+     except GeminiError as exc:return self.reply(503,{'error':str(exc)})
+    key=os.getenv('OPENAI_API_KEY','')
+    if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})
     self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))
    finally:
     IN_FLIGHT.release()
