@@ -8,6 +8,10 @@ function wantsSelfImprovement(text){
  const question=/^(?:como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim());
  return change&&self&&!question;
 }
+function wantsAndroidBuild(text){
+ if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim()))return false;
+ return /\b(android|apk|launcher)\b/i.test(text)&&/(crie|criar|faça|fazer|compile|compilar|gere|gerar|monte|desenvolv)/i.test(text);
+}
 function wantsAutonomousWork(text,selected=[]){
  if(workspace.preferences.agent===false)return false;
  if(wantsSelfImprovement(text))return true;
@@ -180,9 +184,15 @@ const agentSendMessage=sendMessage;
 sendMessage=async function(){
  const text=prompt.value.trim();const project=currentProject();
  const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
- if(text&&wantsAutonomousWork(text,selected)){
+ const explicitComputer=text&&typeof wantsComputerWork==='function'&&wantsComputerWork(text)&&!wantsSelfImprovement(text);
+ if(text&&(explicitComputer||wantsAutonomousWork(text,selected))){
   if(selected.length>4)return notify('Use até quatro referências por trabalho.');
-  return runAutonomousWork(text,selected);
+  let useComputer=false;
+  if(explicitComputer||wantsAndroidBuild(text)){
+   useComputer=typeof computerReady==='function'&&await computerReady();
+   if(explicitComputer&&!useComputer){notify('Conecte o Commander e selecione o computador para executar esta tarefa.');if(typeof showComputerConnection==='function')await showComputerConnection();return}
+  }
+  return runAutonomousWork(text,selected,{useComputer});
  }
  return agentSendMessage();
 };
@@ -194,7 +204,7 @@ async function handleRealtimeWork(call,channel){
   const project=currentProject();const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
   if(typeof args.pedido!=='string'||args.pedido.length<5)throw Error('Descreva o trabalho que deseja criar.');
   if(selected.length>4)throw Error('Use até quatro referências por trabalho.');
-  const useComputer=typeof wantsComputerWork==='function'&&wantsComputerWork(args.pedido);
+  const useComputer=!wantsSelfImprovement(args.pedido)&&typeof wantsComputerWork==='function'&&(wantsComputerWork(args.pedido)||(wantsAndroidBuild(args.pedido)&&await computerReady()));
   if(useComputer&&!await computerReady())throw Error('Conecte o Commander no menu Computador e TV Box da BBLIA.');
   result=await runAutonomousWork(args.pedido,selected,{useComputer});
  }catch(error){result={status:'failed',error:error.message}}
