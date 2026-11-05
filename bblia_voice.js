@@ -3,7 +3,7 @@
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
-let voiceAnalyser=null,voiceSource=null,voiceOneShot=false;
+let voiceAnalyser=null,voiceSource=null,voiceSink=null,voiceOneShot=false;
 
 // A valid silent clip unlocks the reusable player during the user's tap.
 unlockVoicePlayback=function(){
@@ -13,6 +13,26 @@ unlockVoicePlayback=function(){
  player.play().catch(()=>{});
 };
 
+function androidVoiceCapture(){
+ return !!window.BBLAndroid||/; wv\)|\bwv\b/i.test(navigator.userAgent||'');
+}
+function prepareVoiceContext(){
+ const AC=window.AudioContext||window.webkitAudioContext;
+ if(!voiceContext&&AC)voiceContext=new AC();
+ // Create and resume on the original tap, before microphone permission awaits.
+ if(voiceContext?.state==='suspended')voiceContext.resume().catch(()=>{});
+}
+function createVoiceTurnDetector(){
+ let voiced=[],lastSpeech=0,heard=false,noise=0.001;
+ return {sample(rms,now){
+  const threshold=Math.max(0.005,Math.min(0.025,noise*3));
+  voiced=voiced.filter(t=>now-t<=650);
+  if(rms>threshold){voiced.push(now);lastSpeech=now;if(voiced.length>=3)heard=true}
+  else noise=noise*0.97+rms*0.03;
+  return {heard,finished:heard&&now-lastSpeech>=1400};
+ }};
+}
+
 function endRealtime(){
  voiceGeneration++;clearVoiceTimers();clearInterval(voiceMeterTimer);voiceMeterTimer=null;
  voiceRequest?.abort();voiceRequest=null;
@@ -20,7 +40,7 @@ function endRealtime(){
  const recorder=voiceRecorder;voiceRecorder=null;
  if(recorder){recorder.onstop=null;if(recorder.state!=='inactive')try{recorder.stop()}catch(e){}}
  voiceCapture?.getTracks().forEach(t=>t.stop());voiceCapture=null;
- try{voiceSource?.disconnect()}catch(e){}voiceSource=voiceAnalyser=null;
+ try{voiceSource?.disconnect();voiceSink?.disconnect()}catch(e){}voiceSource=voiceAnalyser=voiceSink=null;
  if(voiceContext){voiceContext.close().catch(()=>{});voiceContext=null}
  realtimeConnecting=false;waitingVoice=false;voiceOneShot=false;
 }
@@ -114,11 +134,13 @@ async function captureVoice(){
    if(!active()){stream.getTracks().forEach(t=>t.stop());return}voiceCapture=stream;
   }
   if(!active())return;
-  if(!voiceContext){const AC=window.AudioContext||window.webkitAudioContext;voiceContext=new AC();voiceSource=voiceContext.createMediaStreamSource(voiceCapture);voiceAnalyser=voiceContext.createAnalyser();voiceAnalyser.fftSize=1024;voiceSource.connect(voiceAnalyser)}
+  prepareVoiceContext();
+  if(!voiceContext)throw Error('Este aparelho não permite abrir o áudio da conversa.');
+  if(!voiceSource){voiceSource=voiceContext.createMediaStreamSource(voiceCapture);voiceAnalyser=voiceContext.createAnalyser();voiceAnalyser.fftSize=1024;voiceSource.connect(voiceAnalyser);voiceSink=voiceContext.createGain();voiceSink.gain.value=0;voiceAnalyser.connect(voiceSink);voiceSink.connect(voiceContext.destination)}
   await voiceContext.resume();if(!active())return;
   const mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));
   const recorder=new MediaRecorder(voiceCapture,mime?{mimeType:mime}:{});voiceRecorder=recorder;
-  const chunks=[];let bytes=0,heard=false,loudSince=0,lastLoud=0,started=Date.now();
+  const chunks=[],detector=createVoiceTurnDetector();let bytes=0,heard=false,started=Date.now();
   recorder.ondataavailable=e=>{if(e.data.size){chunks.push(e.data);bytes+=e.data.size}};
   recorder.onerror=()=>{if(active()){endRealtime();voiceMode=false;setVoiceUI();status.textContent='Falha ao gravar a voz. Toque no microfone para tentar novamente.'}};
   recorder.onstop=async()=>{
@@ -141,21 +163,22 @@ async function captureVoice(){
   voiceMeterTimer=setInterval(()=>{
    if(!active()||recorder.state!=='recording')return;
    voiceAnalyser.getFloatTimeDomainData(samples);const rms=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length),now=Date.now();
-   if(rms>0.025){if(!loudSince)loudSince=now;if(now-loudSince>=200)heard=true;lastLoud=now}else loudSince=0;
+   const turn=detector.sample(rms,now);heard=turn.heard;
    // Send only after speech and a pause. Silence never sends a chat message.
-   if((heard&&now-lastLoud>1200)||now-started>35000||bytes>1800000){clearInterval(voiceMeterTimer);voiceMeterTimer=null;recorder.stop()}
+   if(turn.finished||now-started>35000||bytes>1800000){clearInterval(voiceMeterTimer);voiceMeterTimer=null;recorder.stop()}
   },100);
  }catch(e){if(active())voiceFailure(e)}finally{if(generation===voiceGeneration)realtimeConnecting=false}
 }
 listenVoice=function(){
  if(!voiceMode||waitingVoice||voiceSpeaking||send.disabled||recognition||voiceRecorder||realtimeConnecting)return;
  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
- if(!SR||voiceUseRecorder){captureVoice();return}
- const generation=voiceGeneration,rec=new SR();recognition=rec;let spoken='',fallback=false;
+ if(!SR||voiceUseRecorder||androidVoiceCapture()){captureVoice();return}
+ const generation=voiceGeneration,rec=new SR();recognition=rec;let spoken='',fallback=false,delivered=false;
+ const deliver=()=>{if(delivered||generation!==voiceGeneration||!voiceMode||!spoken)return;delivered=true;if(rec===recognition)recognition=null;try{rec.stop?.()}catch(e){}sendRecognizedVoice(spoken)};
  rec.lang='pt-BR';rec.continuous=false;rec.interimResults=false;
- rec.onresult=e=>{if(generation!==voiceGeneration)return;spoken=Array.from(e.results).filter(r=>r.isFinal!==false).map(r=>r[0].transcript).join(' ').trim();if(spoken)waitingVoice=true};
+ rec.onresult=e=>{if(generation!==voiceGeneration)return;spoken=Array.from(e.results).filter(r=>r.isFinal!==false).map(r=>r[0].transcript).join(' ').trim();if(spoken){waitingVoice=true;deliver()}};
  rec.onerror=e=>{if(generation!==voiceGeneration)return;if(e.error==='not-allowed'){voiceFailure(e);return}if(e.error!=='no-speech'&&e.error!=='aborted'){voiceUseRecorder=true;fallback=true}};
- rec.onend=()=>{if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(spoken)sendRecognizedVoice(spoken);else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};
+ rec.onend=()=>{if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(delivered)return;if(spoken)deliver();else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};
  try{rec.start();status.textContent='🎙️ Pode falar. Estou ouvindo.'}catch(e){recognition=null;voiceUseRecorder=true;captureVoice()}
 };
 function toggleVoice(){
@@ -163,12 +186,12 @@ function toggleVoice(){
  if(send.disabled){status.textContent='Aguarde a resposta atual terminar.';return}
  unlockVoicePlayback();stopSpeaking();endRealtime();
  if(dictation){dictation.onend=null;try{dictation.abort()}catch(e){}dictation=null;document.getElementById('dictate').classList.remove('listening')}
- voiceMode=true;muted=false;localStorage.setItem('bblia_muted','0');updateMute();setVoiceUI();listenVoice();
+ voiceMode=true;document.getElementById('auto').checked=true;if(androidVoiceCapture()||!window.SpeechRecognition&&!window.webkitSpeechRecognition)prepareVoiceContext();muted=false;localStorage.setItem('bblia_muted','0');updateMute();setVoiceUI();listenVoice();
 };
 const originalDictateMessage=dictateMessage;
 dictateMessage=function(){
  if(voiceMode)return;
  if(window.SpeechRecognition||window.webkitSpeechRecognition)return originalDictateMessage();
- unlockVoicePlayback();endRealtime();voiceOneShot=true;captureVoice();
+ unlockVoicePlayback();endRealtime();prepareVoiceContext();voiceOneShot=true;captureVoice();
 };
 window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime();stopSpeaking()});

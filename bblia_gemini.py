@@ -1,5 +1,5 @@
 """Provedor Gemini para a BBLIA. Sem fallback pago automático."""
-import json, os, urllib.request, urllib.error
+import json, os, time, urllib.request, urllib.error
 
 class GeminiError(Exception):
     pass
@@ -21,15 +21,22 @@ def responder(messages, model=None):
         else: text=str(raw)
         if text.strip(): contents.append({'role':role,'parts':[{'text':text[:30000]}]})
     if not contents: raise GeminiError('Envie uma mensagem de texto.')
-    payload={'contents':contents,'generationConfig':{'maxOutputTokens':4096}}
+    payload={'systemInstruction':{'parts':[{'text':'Você é a BBLIA, assistente brasileira. Responda em português brasileiro, a menos que o usuário peça outro idioma. Responda de forma direta e natural. Para perguntas simples, use respostas breves. Não diga que executou tarefas sem confirmação real.'}]},'contents':contents,'generationConfig':{'maxOutputTokens':4096}}
     url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent'
     req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers={'Content-Type':'application/json','x-goog-api-key':key},method='POST')
-    try:
-        with urllib.request.urlopen(req,timeout=60) as res: result=json.load(res)
-    except urllib.error.HTTPError as exc:
-        if exc.code==429:raise GeminiError('Limite gratuito do Gemini atingido. Aguarde e tente novamente.') from exc
-        raise GeminiError('Gemini indisponível (HTTP %s).'%exc.code) from exc
-    except (OSError,TimeoutError) as exc:raise GeminiError('Não foi possível acessar o Gemini.') from exc
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req,timeout=25) as res: result=json.load(res)
+            break
+        except urllib.error.HTTPError as exc:
+            if attempt==0 and exc.code in (500,502,503,504):
+                time.sleep(0.4);continue
+            if exc.code==429:raise GeminiError('Limite gratuito do Gemini atingido. Aguarde e tente novamente.') from exc
+            raise GeminiError('Gemini indisponível (HTTP %s).'%exc.code) from exc
+        except (OSError,TimeoutError) as exc:
+            if attempt==0:time.sleep(0.4);continue
+            raise GeminiError('Não foi possível acessar o Gemini.') from exc
     answer='\n'.join(p.get('text','') for c in result.get('candidates',[]) for p in c.get('content',{}).get('parts',[]) if isinstance(p,dict))
     if not answer:raise GeminiError('Gemini não retornou texto nesta solicitação.')
     return {'answer':answer,'artifacts':[],'sources':[],'web_used':False,'usage':{}}
+

@@ -19,7 +19,7 @@ function harness(){
 }
 (async()=>{
  const h=harness();h.run('muted=true;toggleVoice()');assert.equal(h.c.muted,false);assert.equal(h.c.starts,1);assert.equal(h.requests.length,0,'starting voice does not call OpenAI realtime');
- h.c.rec.onresult({results:[[{transcript:'Bom dia'}]]});h.c.rec.onend();await h.flush();assert.equal(h.c.received,'Bom dia');
+ h.c.rec.onresult({results:[[{transcript:'Bom dia'}]]});await h.flush();assert.equal(h.c.received,'Bom dia','a final transcript must answer even when the browser never emits onend');h.c.rec.onend();await h.flush();
  h.run('toggleVoice()');assert.equal(h.c.voiceMode,false);
  const s=harness();const long='Uma resposta longa para ouvir por completo. '.repeat(30)+'FIM.';
  s.c.answer=long;const pending=s.run('speak(answer)');await s.flush();assert.equal(s.requests.length,1);
@@ -31,6 +31,18 @@ function harness(){
  // A late microphone permission response after stopping must release the stream.
  const stale=harness();let release;stale.c.navigator.mediaDevices={getUserMedia:()=>new Promise(r=>release=r)};stale.c.window.MediaRecorder=class{};
  stale.run('voiceMode=true;voiceUseRecorder=true');const capture=stale.run('captureVoice()');stale.run('voiceMode=false;endRealtime()');let stoppedTrack=false;release({getTracks:()=>[{stop(){stoppedTrack=true}}]});await capture;assert.equal(stoppedTrack,true);
+ const quiet=harness();
+ const detector=quiet.run('createVoiceTurnDetector()');
+ let turn;for(let t=100;t<=600;t+=100)turn=detector.sample(t%200===0?0.009:0.001,t);
+ assert.equal(turn.heard,true,'quiet syllables separated by short pauses count as speech');
+ for(let t=700;t<=2100;t+=100)turn=detector.sample(0.001,t);
+ assert.equal(turn.finished,true,'pause sends the phrase without a second tap');
+ const silence=quiet.run('createVoiceTurnDetector()');for(let t=100;t<3000;t+=100)assert.equal(silence.sample(0.001,t).heard,false);
+ const click=quiet.run('createVoiceTurnDetector()');click.sample(0.1,100);assert.equal(click.sample(0,1700).heard,false,'one impact is not speech');
+ const android=harness();android.c.window.BBLAndroid={dictate(){}};
+ let requested=false;android.c.navigator.mediaDevices={getUserMedia:()=>{requested=true;return new Promise(()=>{})}};android.c.window.MediaRecorder=class{};
+ let contextCreated=false,resumed=false;android.c.window.AudioContext=class{constructor(){contextCreated=true;this.state='suspended'}resume(){resumed=true;return Promise.resolve()}};
+ android.run('toggleVoice()');assert.equal(android.c.starts,undefined,'WebView speech interface must not be used even if exposed');assert.equal(contextCreated,true);assert.equal(resumed,true);assert.equal(requested,true);
  h.events.pagehide();assert.equal(h.c.voiceMode,false);
  console.log('PASS full speech, no paid calls, playback gating, stop cancellation, permission denial, stale microphone cleanup, page exit');
 })().catch(e=>{console.error(e);process.exitCode=1});
