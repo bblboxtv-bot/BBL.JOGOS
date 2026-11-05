@@ -163,6 +163,7 @@ def request_model(payload, key):
 
 
 INSTRUCTIONS = '''Você é a BBLIA em modo Fazer por mim. Execute o trabalho até entregar um resultado concreto.
+Quando receber análise estática de APK anexada, use pacote, permissões, componentes, layouts e textos recuperados como referência para criar um projeto Android próprio conforme o pedido. Diferencie fatos extraídos de inferências; não afirme recuperar todo o código-fonte ou executar o APK. Desenvolva uma base concreta com o que houver; só peça imagens das telas se um detalhe visual indispensável não puder ser identificado.
 Quando receber uma imagem de referência de painel, observe a imagem real: distribuição, cores, menus e proporções.
 Escolha detalhes rotineiros por conta própria e declare brevemente as premissas na entrega. Não pare para perguntar
 nome, cores, tecnologia ou se pode continuar. Use português brasileiro. Só peça dado realmente indispensável,
@@ -361,3 +362,4 @@ def cancel_work(job_id):
         if job['status'] == 'processing':
             job.update(cancelled=True, status='cancelling', progress='Interrompendo após a etapa em andamento')
     return get_work(job_id)
+
