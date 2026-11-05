@@ -12,6 +12,10 @@ class SyncTests(unittest.TestCase):
  def test_continuation_no_duplicate(self):
   a=self.state();b=copy.deepcopy(a);b['chats'][0]['messages'].append({'role':'assistant','content':'resposta'});b['chats'][0]['updated']=2
   result=s.merge([a,b]);self.assertEqual(len(result['chats']),1);self.assertEqual(len(result['chats'][0]['messages']),2)
+ def test_continuation_survives_clock_skew(self):
+  a=self.state(updated=999);b=self.state(updated=1);b['chats'][0]['messages'].append({'role':'assistant','content':'continuação'})
+  self.assertEqual(len(s.merge([a,b])['chats'][0]['messages']),2)
+  self.assertEqual(len(s.merge([b,a])['chats'][0]['messages']),2)
  def test_divergent_edits_preserved_and_idempotent(self):
   a=self.state();b=self.state('outro',2)
   result=s.merge([a,b]);self.assertEqual(len(result['chats']),2)

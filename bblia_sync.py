@@ -73,6 +73,11 @@ def merge(states):
                         fork=copy.deepcopy(loser);fork['id']=item['id']+'-conflict-'+signature(loser['messages'])[:12];fork['title']=loser['title']+' · cópia preservada'
                         conflicts[fork['id']]=(item['id'],fork)
                 if not old or (stamp(item.get('updated')),signature(item))>(stamp(old.get('updated')),signature(old)):groups[kind][item['id']]=copy.deepcopy(item)
+                if old and kind=='chats':
+                    a,b=old['messages'],item['messages']
+                    if a[:len(b)]==b or b[:len(a)]==a:
+                        # Device clocks may differ: never discard a verified continuation.
+                        groups[kind][item['id']]['messages']=copy.deepcopy(a if len(a)>=len(b) else b)
     for kind,items in groups.items():
         result[kind]=[item for key,item in items.items() if kind+':'+key not in result['deleted']]
     for fid,(parent,fork) in conflicts.items():
