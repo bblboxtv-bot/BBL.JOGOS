@@ -1,3 +1,4 @@
+import bblia_runtime as runtime
 import bblia_sync as sync
 import bblia_google as google
 import html
@@ -98,8 +99,9 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path.startswith('/api/work/jobs/'):
    try:return self.reply(200,get_work(urlsplit(self.path).path.rsplit('/',1)[-1]))
    except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
+  if urlsplit(self.path).path=='/api/runtime/status':return self.reply(200,runtime.status())
   if urlsplit(self.path).path=='/api/integrations':
-   result=integration_status();gs=google.status(self.headers.get('Cookie',''))
+   result=integration_status();result['items'].append({'id':'runtime','name':'Executar testes JavaScript','state':'configured' if runtime.status()['state']=='ready' else 'missing','detail':runtime.status()['detail']+' Sem testes visuais, compilação de APK ou integrações externas.'});gs=google.status(self.headers.get('Cookie',''))
    for item in result['items']:
     if item['id']=='sync':
      item['state']='connected' if gs.get('user') and 'sync' in gs['services'] else 'ready'
@@ -370,6 +372,7 @@ class Handler(BaseHTTPRequestHandler):
    else:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
   except Exception:self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
 if __name__=='__main__':
+ runtime.start_prepare()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
 
 

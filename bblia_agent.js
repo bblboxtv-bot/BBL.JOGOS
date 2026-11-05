@@ -122,7 +122,7 @@ async function finishWork(bubble,pending){
   if(data.limitations?.length)answer+='\n\n'+data.limitations.join('\n');
   if(data.validation&&data.kind!=='computador')answer+='\n\nVerificação automática de estrutura: '+(data.validation.ok?'sem erros detectados.':'há ajustes pendentes.');
   if(artifacts.some(f=>f.name==='index.html'))answer+='\nSintaxe JavaScript da prévia: '+(syntaxErrors.length?syntaxErrors.join('; '):'sem erros detectados nos scripts verificáveis.');
-  if(data.kind!=='computador')answer+='\nA validação do editor cobre estrutura e sintaxe. Testes de execução e integrações dependem das ferramentas utilizadas.';
+  if(data.runtime_tests?.executed){const t=data.runtime_tests;answer+='\nTestes reais de lógica JavaScript: '+(t.ok?'aprovados ('+(t.passed||0)+' testes).':'falharam: '+(t.error||(t.tests||[]).filter(x=>!x.ok).map(x=>x.name+': '+x.error).join('; ')));answer+='\nEsses testes não verificam a interface visual, APIs externas nem compilação de APK.'}else if(data.kind!=='computador')answer+='\nExecução de código não confirmada nesta entrega. A verificação cobre estrutura e sintaxe.';
   paintResponse(bubble,answer,artifacts,data.sources||[]);
   history.push({role:'assistant',content:answer,artifacts,sources:data.sources||[]});
   delete chat.workJob;await saveChat();notify(data.status==='completed'?'Trabalho entregue':'Arquivos parciais disponíveis');
@@ -215,4 +215,5 @@ async function initAutonomousWork(){
  await resumeAutonomousWork();
 }
 initAutonomousWork();
+
 

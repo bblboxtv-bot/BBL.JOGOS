@@ -1,8 +1,9 @@
+import bblia_runtime as runtime
 from bblia_work import memory_context
 from bblia_self import list_sources, read_source, validate_changes, SELF_GUIDANCE, CREATIVE_GUIDANCE
 """Background work loop with image inputs, file tools and explicit verification.
 
-Generated and uploaded code is data here: it is never executed on the web server.
+JavaScript logic can run only in the bounded, host-free runtime subprocess. Other generated/uploaded code remains data.
 Job IDs are unlisted bearer capabilities; jobs expire after one hour.
 """
 import copy
@@ -135,6 +136,8 @@ def agent_tools(web=True):
              {'tipo': {'type': 'string', 'enum': ['web', 'codigo', 'documento', 'computador']}}, ['tipo']),
         tool('ler_github', 'Ler um arquivo de repositório público para consultar documentação ou código.',
              {'repositorio': string, 'caminho': string, 'ref': string}, ['repositorio', 'caminho', 'ref']),
+        tool('testar_javascript', 'Executar testes reais de lógica JavaScript em processo limitado, sem DOM, Node, rede ou arquivos. Crie os arquivos de lógica e um teste separado com test(nome,()=>{assert(condicao); assert.equal(a,b); assert.deepEqual(a,b)}). Não aceita import/export nem require.',
+             {'arquivos': {'type':'array','items':string}, 'teste':string}, ['arquivos','teste']),
         tool('finalizar_trabalho', 'Entregar os arquivos concluídos após revisão. Se a validação falhar, corrija e tente novamente.',
              {'resumo': string, 'tipo': {'type': 'string', 'enum': ['web', 'codigo', 'documento', 'computador']},
               'limitacoes': {'type': 'array', 'items': string}}, ['resumo', 'tipo', 'limitacoes'])]
@@ -183,8 +186,7 @@ Quando não houver ferramenta conectada, entregue código e instruções honesta
 Arquivos do projeto existente devem ser preservados e alterados conforme o pedido. Não substitua todo o projeto
 por um exemplo mínimo quando o usuário pedir uma correção. Para outros tipos de projeto, escolha os arquivos
 adequados e entregue também como iniciar o projeto. Use validar_projeto, corrija todos os erros identificados e
-finalize com finalizar_trabalho. A validação do servidor é estática: não afirme teste de execução ou integração
-real. A interface poderá verificar a sintaxe JavaScript da prévia. Não termine apenas com um plano ou oferta.
+finalize com finalizar_trabalho. A validação de estrutura é estática. Para projetos web, separe as funções de cálculo, validação e estado em logica.js, sem DOM nem import/export, e inclua o script no HTML. Crie um arquivo testes.js com test(nome,funcao) e assert, cobrindo comportamento pedido e casos de erro. Execute testar_javascript, corrija os erros e repita antes de finalizar. Não enfraqueça os testes para esconder erros. Não invente resultado de testes. O executor não é um navegador e não comprova interface visual, banco, rede, compilação ou instalação. Se o ambiente retornar indisponível, declare essa limitação e preserve a entrega, sem afirmar teste de execução. A interface poderá verificar a sintaxe JavaScript da prévia. Não termine apenas com um plano ou oferta.
 '''
 
 
@@ -227,6 +229,7 @@ def run_job(job, safe, data, files):
         previous = None
         inputs = None
         final = None
+        runtime_report = None
         sources = []
         deadline = time.monotonic()+900
         for step in range(16):
@@ -288,6 +291,11 @@ def run_job(job, safe, data, files):
                             raise WorkError('O trecho atual deve corresponder exatamente a uma ocorrência. Leia o código e inclua contexto suficiente.')
                         info = put_file(files,filename,current.replace(old,new,1))
                         progress(job, 'Preparando melhoria na BBLIA: '+filename)
+                    elif name == 'testar_javascript':
+                        progress(job, 'Executando testes reais da lógica JavaScript')
+                        runtime_report = runtime.execute(files,args)
+                        with LOCK:job['runtime_tests']=copy.deepcopy(runtime_report)
+                        info=runtime_report
                     elif name == 'planejar_trabalho':
                         plan = [str(x)[:150] for x in args.get('etapas', [])[:8]]
                         with LOCK:
@@ -311,6 +319,15 @@ def run_job(job, safe, data, files):
                         progress(job, 'Verificando os arquivos e corrigindo problemas')
                         report = (validate_changes(files, originals, validate_files) if self_improvement
                                   else validate_files(files, args.get('tipo', 'codigo')))
+                        if not self_improvement and args.get('tipo')!='computador':
+                            report['runtime_tested']=bool(runtime_report and runtime_report.get('executed'))
+                            report['runtime_scope']='lógica JavaScript; sem teste visual ou integração externa'
+                            if runtime_report and runtime_report.get('executed') and (not runtime_report.get('ok') or runtime_report.get('project_hash')!=runtime.fingerprint(files)):
+                                report['ok']=False
+                                report['errors'].append('Corrija os erros e execute novamente testar_javascript nos arquivos atuais.')
+                            elif args.get('tipo')=='web' and runtime.status()['state']=='ready' and not (runtime_report and runtime_report.get('ok') and runtime_report.get('project_hash')==runtime.fingerprint(files)):
+                                report['ok']=False
+                                report['errors'].append('Antes de finalizar o projeto web, crie e execute testes da lógica com testar_javascript.')
                         if args.get('tipo') == 'computador':
                             report['ok'] = bool(computer and computer.actions and any(a['confirmed'] for a in computer.actions))
                             report['checks'] = ['chamadas ao computador registradas']
@@ -403,4 +420,5 @@ def cancel_work(job_id):
         if job['status'] == 'processing':
             job.update(cancelled=True, status='cancelling', progress='Interrompendo após a etapa em andamento')
     return get_work(job_id)
+
 
