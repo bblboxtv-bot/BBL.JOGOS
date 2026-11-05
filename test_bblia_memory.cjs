@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const src=fs.readFileSync('bblia_work.js','utf8').replace(/initWorkbench\(\);\s*$/,'');
+const ctx={crypto:{randomUUID:()=> 'branch-id'},openSection(){},sendMessage(){},structuredClone,document:{getElementById:()=>({close(){}})},prompt:{focus(){}}};
+vm.createContext(ctx);vm.runInContext(src,ctx);
+vm.runInContext(`busy=()=>false;persist=()=>{};renderChat=()=>{};saveChat=()=>{};
+workspace.chats=[{id:'original',title:'Projeto',messages:[{role:'user',content:'A'},{role:'assistant',content:'B'},{role:'user',content:'C'}]}];workspace.active='original';branchConversation(2);`,ctx);
+const state=vm.runInContext('workspace',ctx);
+assert.equal(state.chats.length,2);assert.equal(state.chats[1].messages.length,3);assert.equal(state.chats[0].messages.length,2);assert.equal(ctx.prompt.value,'C');
+state.chats[0].messages[0].content='Edited';assert.equal(state.chats[1].messages[0].content,'A');
+console.log('PASS conversation branching preserves original and prepares edited user message');

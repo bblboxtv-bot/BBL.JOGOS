@@ -1,3 +1,4 @@
+from bblia_work import memory_context
 from bblia_self import list_sources, read_source, validate_changes, SELF_GUIDANCE, CREATIVE_GUIDANCE
 """Background work loop with image inputs, file tools and explicit verification.
 
@@ -195,6 +196,7 @@ def run_job(job, safe, data, files):
                    for k in ('name', 'instructions', 'detail')}}
         instructions = INSTRUCTIONS+'\nContexto informado pelo usuário: '+json.dumps(context, ensure_ascii=False)[:14000]
         instructions += '\n'+CREATIVE_GUIDANCE
+        instructions += memory_context(preferences)
         tools = agent_tools(preferences.get('web', True))
         self_improvement = data.get('self_improvement') is True
         originals = {}

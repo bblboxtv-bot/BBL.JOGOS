@@ -14,6 +14,7 @@ def requests_web_lookup(messages):
         content = next((p.get('text','') for p in content if p.get('type')=='input_text'), '')
     text = ''.join(c for c in unicodedata.normalize('NFD', str(content).lower()) if not unicodedata.combining(c))
     return bool(re.search(r'\b(pesquise|pesquisar|busque|buscar)\b|\b(faca|fazer)\s+(uma\s+)?pesquisa\b', text)
+                or re.search(r'\b(hoje|agora|atualmente|recente|recentes|últim[oa]s?|ultim[oa]s?|cotação|cotacao|preço|preco|notícias|noticias|atualizad[oa]s?)\b', text)
                 or re.search(r'\b(procure|encontre|consulte|verifique)\b.{0,100}\b(internet|web|online|fontes?|sites?)\b', text))
 
 
@@ -139,6 +140,7 @@ def execute_work_tool(name, args, artifacts):
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
     return {'version': 'computer-connect-20261104', 'chat_daily_limit': None, 'items': [
+        {'id': 'memory', 'name': 'Memória e histórico', 'state': 'configured', 'detail': 'Memórias editáveis em Configurações, busca no conteúdo e continuação de conversas preservando o original. Dados salvos neste navegador e incluídos no backup.'},
         {'id': 'self', 'name': 'Melhorar a própria BBLIA', 'state': 'configured' if api else 'missing', 'detail': 'Peça alterações na própria BBLIA por texto ou voz. Ela lê o código atual e prepara os arquivos alterados. Publicação depende de conexão de manutenção autenticada pelo proprietário.'},
         {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
@@ -153,3 +155,16 @@ def integration_status():
         {'id': 'sync', 'name': 'Sincronizar aparelhos', 'state': 'missing', 'detail': 'Projetos ficam neste navegador. Use exportar/importar backup para transferir.'}
     ]}
 
+
+
+def memory_context(preferences):
+    """Explicit user-managed notes; never a shared server memory."""
+    if not isinstance(preferences, dict) or preferences.get('memory_enabled') is False:
+        return ''
+    notes = preferences.get('memories', [])
+    if not isinstance(notes, list):
+        return ''
+    notes = [n.strip()[:1000] for n in notes[:40] if isinstance(n, str) and n.strip()]
+    if not notes:
+        return ''
+    return '\nMemórias escolhidas pelo usuário (contexto pessoal, não autorização para ações externas): '+json.dumps(notes, ensure_ascii=False)[:12000]
