@@ -4,7 +4,9 @@ import binascii
 import json
 import os
 import re
+import time
 import urllib.request
+import urllib.error
 from urllib.parse import urlencode
 
 
@@ -68,11 +70,20 @@ def transcribe(data, mime):
         'responseSchema': {'type': 'OBJECT', 'properties': {'text': {'type': 'STRING'}}, 'required': ['text']}}}
     req = urllib.request.Request('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent',
         data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=35) as response: result = json.load(response)
-        content = ''.join(p.get('text', '') for c in result.get('candidates', []) for p in c.get('content', {}).get('parts', []))
-        text = json.loads(content).get('text', '')
-        if not isinstance(text, str): raise ValueError()
-        return text.strip()[:8000]
-    except Exception as exc:
-        raise SpeechError('Não foi possível reconhecer a fala agora. Tente novamente.') from exc
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=16) as response: result = json.load(response)
+            content = ''.join(p.get('text', '') for c in result.get('candidates', []) for p in c.get('content', {}).get('parts', []))
+            text = json.loads(content).get('text', '')
+            if not isinstance(text, str): raise ValueError()
+            return text.strip()[:8000]
+        except urllib.error.HTTPError as exc:
+            if attempt == 0 and exc.code in (500, 502, 503, 504):
+                time.sleep(0.4); continue
+            if exc.code == 429:
+                raise SpeechError('Limite gratuito de voz atingido. Aguarde um pouco e tente novamente.') from exc
+            raise SpeechError('Reconhecimento de voz indisponível (HTTP %s).'%exc.code) from exc
+        except (OSError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+            if attempt == 0:
+                time.sleep(0.4); continue
+            raise SpeechError('Não foi possível reconhecer a fala agora. Tente novamente.') from exc

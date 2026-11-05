@@ -47,6 +47,21 @@ class SpeechTests(unittest.TestCase):
             self.assertEqual(speech.transcribe(encoded,'audio/webm;codecs=opus'),'Bom dia, BBLIA.')
         self.assertEqual(seen[0]['contents'][0]['parts'][1]['inlineData']['data'],encoded)
 
+    def test_transient_transcription_failure_retries_once(self):
+        content=json.dumps({'text':'Olá'})
+        response=io.BytesIO(json.dumps({'candidates':[{'content':{'parts':[{'text':content}]}}]}).encode())
+        temporary=urllib.error.HTTPError('https://provider',503,'busy',{},None)
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch.object(speech.urllib.request,'urlopen',side_effect=[temporary,response]) as request,patch.object(speech.time,'sleep'):
+            self.assertEqual(speech.transcribe(base64.b64encode(b'test-audio-data').decode(),'audio/webm'),'Olá')
+            self.assertEqual(request.call_count,2)
+
+    def test_quota_error_does_not_retry_or_use_paid_provider(self):
+        limited=urllib.error.HTTPError('https://provider',429,'quota',{},None)
+        with patch.dict(os.environ,{'GEMINI_API_KEY':'fake'}),patch.object(speech.urllib.request,'urlopen',side_effect=limited) as request:
+            with self.assertRaisesRegex(speech.SpeechError,'Limite gratuito'):
+                speech.transcribe(base64.b64encode(b'test-audio-data').decode(),'audio/webm')
+            self.assertEqual(request.call_count,1)
+
     def test_bad_audio_never_reaches_provider(self):
         with patch.object(speech.urllib.request,'urlopen') as request:
             for data,mime in [('bad','audio/webm'),('x'*20,'text/plain'),('!'*20,'audio/webm')]:
