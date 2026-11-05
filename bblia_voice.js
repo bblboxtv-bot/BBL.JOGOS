@@ -5,6 +5,12 @@ let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voi
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
 let voiceAnalyser=null,voiceSource=null,voiceSink=null,voiceOneShot=false;
 
+// Default to the user's requested brighter feminine voice and brisker delivery.
+const voicePlaybackRate=1.15;
+if(localStorage.getItem?.('bblia_voice_style')!=='feminina-agil-v1'){
+ voiceIndex=0;localStorage.setItem('bblia_voice','0');localStorage.setItem('bblia_voice_style','feminina-agil-v1');
+}
+
 // A valid silent clip unlocks the reusable player during the user's tap.
 unlockVoicePlayback=function(){
  if(unlockedAudio)return;
@@ -61,7 +67,7 @@ function deviceSpeech(text,token){
  return new Promise((resolve,reject)=>{
   if(token!==voiceToken)return resolve();
   if(!('speechSynthesis' in window))return reject(Error('Voz indisponível neste aparelho.'));
-  const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';utterance.rate=selectedVoiceRate();
+  const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';utterance.rate=voicePlaybackRate;utterance.pitch=1.08;
   const selected=selectedVoice();if(selected)utterance.voice=selected;
   let timer;const finish=error=>{clearTimeout(timer);voiceCancelPlayback=null;error?reject(error):resolve()};
   voiceCancelPlayback=()=>finish();utterance.onend=()=>finish();utterance.onerror=e=>finish(Error(e.error||'Falha na voz do aparelho.'));
@@ -70,7 +76,7 @@ function deviceSpeech(text,token){
  });
 }
 async function playSpeechBlob(blob,token){
- const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;currentAudio=audio;
+ const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;audio.defaultPlaybackRate=voicePlaybackRate;audio.playbackRate=voicePlaybackRate;audio.preservesPitch=false;audio.webkitPreservesPitch=false;currentAudio=audio;
  try{await new Promise((resolve,reject)=>{
   let timer;const finish=error=>{clearTimeout(timer);audio.onended=audio.onerror=null;voiceCancelPlayback=null;error?reject(error):resolve()};
   voiceCancelPlayback=()=>finish();audio.onended=()=>finish();audio.onerror=()=>finish(Error('Falha ao reproduzir áudio.'));
