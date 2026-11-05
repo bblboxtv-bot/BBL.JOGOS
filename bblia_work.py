@@ -3,8 +3,31 @@ import base64
 import json
 import os
 import re
+import unicodedata
 import urllib.request
 from urllib.parse import quote
+
+
+def requests_web_lookup(messages):
+    content = messages[-1]['content'] if messages else ''
+    if isinstance(content, list):
+        content = next((p.get('text','') for p in content if p.get('type')=='input_text'), '')
+    text = ''.join(c for c in unicodedata.normalize('NFD', str(content).lower()) if not unicodedata.combining(c))
+    return bool(re.search(r'\b(pesquise|pesquisar|busque|buscar)\b|\b(faca|fazer)\s+(uma\s+)?pesquisa\b', text)
+                or re.search(r'\b(procure|encontre|consulte|verifique)\b.{0,100}\b(internet|web|online|fontes?|sites?)\b', text))
+
+
+def response_sources(responses):
+    sources, seen = [], set()
+    for result in responses:
+        for item in result.get('output', []):
+            for part in item.get('content', []):
+                for ann in part.get('annotations', []):
+                    url = ann.get('url','')
+                    if ann.get('type')=='url_citation' and isinstance(url,str) and url.startswith(('https://','http://')) and url not in seen:
+                        seen.add(url)
+                        sources.append({'url':url,'title':ann.get('title') or 'Fonte'})
+    return sources[:30]
 
 
 def attachment_parts(attachments):

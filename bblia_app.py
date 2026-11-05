@@ -5,7 +5,7 @@ from bblia_computer import oauth_start, oauth_token, list_computers, ComputerErr
 from bblia_agent import start_work, get_work, cancel_work, WorkError
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from bblia_work import prepare_messages, work_tools, execute_work_tool, integration_status
+from bblia_work import prepare_messages, work_tools, execute_work_tool, integration_status, requests_web_lookup, response_sources
 import os, json, urllib.request, urllib.error, threading, time, re, base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -260,9 +260,15 @@ class Handler(BaseHTTPRequestHandler):
    needs_fresh=any(term in str(safe[-1]['content']).lower() for term in recent_terms)
    if needs_fresh:instructions+=' Para pessoas publicas, cargos, mandatos, politica e noticias, consulte a web antes de responder; inclua fontes e datas. Lula assumiu mandatos em 2003, 2007 e 2023; nunca afirme que 2013 foi inicio de mandato. Se a busca falhar, diga que nao conseguiu confirmar o estado atual.'
    payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':instructions,'input':safe,'tools':tools,'max_output_tokens':8000}
+   force_web=bool(preferences.get('web',True) and requests_web_lookup(safe))
+   if force_web:
+    payload['tool_choice']={'type':'web_search_preview'}
+    payload['instructions']+=' Este pedido exige uma pesquisa real na internet. Use a busca e responda com links e citações das fontes consultadas; não apresente memória como pesquisa.'
+    instructions=payload['instructions']
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=120) as r:result=json.load(r)
    artifacts=[]
+   response_history=[result]
    for _ in range(5):
     media_calls=[item for item in result.get('output',[]) if item.get('type')=='function_call' and item.get('name') in ('criar_imagem','criar_video')]
     if media_calls:
@@ -283,14 +289,14 @@ class Handler(BaseHTTPRequestHandler):
     follow={'model':payload['model'],'instructions':instructions,'previous_response_id':result['id'],'input':outputs,'tools':tools,'max_output_tokens':8000}
     req2=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(follow).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req2,timeout=120) as r:result=json.load(r)
-   answer='\n'.join(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text')
-   sources=[]
-   for item in result.get('output',[]):
-    for part in item.get('content',[]):
-     for ann in part.get('annotations',[]):
-      if ann.get('type')=='url_citation':sources.append({'url':ann.get('url',''),'title':ann.get('title','Fonte')})
+    response_history.append(result)
+   answer='\n'.join(dict.fromkeys(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text'))
+   sources=response_sources(response_history)
+   web_used=any(item.get('type')=='web_search_call' and item.get('status')=='completed' for response in response_history for item in response.get('output',[]))
+   if force_web and not web_used:
+    return self.reply(502,{'error':'Não foi possível confirmar a pesquisa na internet. Tente novamente; não vou apresentar uma resposta sem verificar as fontes.'})
    usage=result.get('usage',{})
-   self.reply(200,{'answer':answer or ('Arquivos prontos para baixar.' if artifacts else 'Sem resposta textual.'),'artifacts':artifacts,'sources':sources,'usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
+   self.reply(200,{'answer':answer or ('Arquivos prontos para baixar.' if artifacts else 'Sem resposta textual.'),'artifacts':artifacts,'sources':sources,'web_used':web_used,'usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
   except urllib.error.HTTPError as e:
    try:
     details=json.loads(e.read(2048)).get('error',{})
