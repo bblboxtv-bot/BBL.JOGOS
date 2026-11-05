@@ -10,22 +10,7 @@ let currentAudio=null,voiceToken=0,unlockedAudio=null;
 function unlockVoicePlayback(){if(unlockedAudio)return;const audio=new Audio();audio.setAttribute('playsinline','');audio.preload='auto';audio.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';unlockedAudio=audio;const p=audio.play();if(p&&p.catch)p.catch(()=>{});}
 
 function stopSpeaking(){voiceToken++;if(currentAudio){currentAudio.pause();currentAudio=null}if('speechSynthesis' in window)speechSynthesis.cancel()}
-async function speak(text){
- stopSpeaking();const token=voiceToken;
- const clean=String(text).replace(/https?:\/\/\S+/g,'').slice(0,1400);
- if(!clean.trim())return;
- if(!('speechSynthesis' in window))throw Error('Voz do dispositivo indisponível');
- await new Promise(resolve=>{
-  const u=new SpeechSynthesisUtterance(clean);u.lang='pt-BR';
-  u.rate=selectedVoiceRate();u.pitch=voiceOptions[voiceIndex].pitch;
-  const v=selectedVoice();if(v)u.voice=v;
-  let done=false;const finish=()=>{if(done)return;done=true;clearTimeout(timer);resolve()};
-  const timer=setTimeout(()=>{if(token===voiceToken)speechSynthesis.cancel();finish()},60000);
-  u.onend=finish;u.onerror=finish;
-  if(token!==voiceToken){finish();return}
-  speechSynthesis.speak(u);
- });
-}
+async function speak(text){stopSpeaking();const token=voiceToken;const clean=String(text).replace(/https?:\/\/\S+/g,'').slice(0,350);if(!clean.trim())return;try{const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean,voice:voiceOptions[voiceIndex].api})});if(!response.ok)throw Error('voice unavailable');const blob=await response.blob();if(token!==voiceToken)return;const url=URL.createObjectURL(blob);const audio=unlockedAudio||new Audio();audio.src=url;audio.load();currentAudio=audio;await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{audio.pause();reject(Error('audio timeout'))},18000);audio.onended=()=>{clearTimeout(timeout);resolve()};audio.onerror=()=>{clearTimeout(timeout);reject(Error('audio error'))};audio.play().catch(e=>{clearTimeout(timeout);reject(e)})});URL.revokeObjectURL(url);if(currentAudio===audio)currentAudio=null;return}catch(e){if(token!==voiceToken)return}if(!('speechSynthesis' in window))throw Error('Voz indisponível');await new Promise(resolve=>{const timeout=setTimeout(()=>{speechSynthesis.cancel();resolve()},18000);const u=new SpeechSynthesisUtterance(clean);u.lang='pt-BR';u.rate=selectedVoiceRate();u.pitch=voiceOptions[voiceIndex].pitch;const v=selectedVoice();if(v)u.voice=v;u.onend=()=>{clearTimeout(timeout);resolve()};u.onerror=()=>{clearTimeout(timeout);resolve()};speechSynthesis.speak(u)})}
 let muted=localStorage.getItem('bblia_muted')==='1',dictation=null;
 function updateMute(){const b=document.getElementById('mute');b.textContent=muted?'🔇':'🔊';b.classList.toggle('muted',muted);b.setAttribute('aria-label',muted?'Ativar respostas de voz':'Silenciar respostas de voz')}
 function toggleMute(){unlockVoicePlayback();muted=!muted;localStorage.setItem('bblia_muted',muted?'1':'0');updateMute();if(realtimeAudio)realtimeAudio.muted=muted;if(muted)stopSpeaking();status.textContent=muted?'Voz silenciada':'Respostas por voz ativadas'}
