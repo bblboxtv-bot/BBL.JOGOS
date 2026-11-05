@@ -1,3 +1,4 @@
+from bblia_speech import synthesize, transcribe, SpeechError
 import bblia_documents as documents
 import bblia_runtime as runtime
 import bblia_sync as sync
@@ -125,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'runtime-documents-20261105','source':os.getenv('RENDER_GIT_COMMIT','local')})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'voice-free-20261105','source':os.getenv('RENDER_GIT_COMMIT','local')})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -258,6 +259,7 @@ class Handler(BaseHTTPRequestHandler):
   if self.path in ('/api/image','/api/media/jobs'):return self.media_create()
   if self.path=='/api/realtime-token':return self.realtime_token()
   if self.path=='/api/voice':return self.voice_audio()
+  if self.path=='/api/transcribe':return self.transcribe_audio()
   if self.path!='/api/chat':return self.reply(404,{'error':'Nao encontrado'})
   try:
    length=int(self.headers.get('Content-Length','0'))
@@ -280,26 +282,35 @@ class Handler(BaseHTTPRequestHandler):
   except ValueError as exc:self.reply(400,{'error':str(exc)})
   except Exception:
    self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
- def voice_audio(self):
-  key=os.getenv('OPENAI_API_KEY','')
-  if not key:return self.reply(503,{'error':'Voz natural indisponivel'})
+ def transcribe_audio(self):
+  acquired=False
   try:
    length=int(self.headers.get('Content-Length','0'))
-   if length<1 or length>1500:return self.reply(413,{'error':'Texto muito longo'})
+   if not 10<=length<=2801000:return self.reply(413,{'error':'Gravação muito longa.'})
+   data=json.loads(self.rfile.read(length))
+   if not isinstance(data,dict):raise ValueError('Pedido inválido.')
+   acquired=IN_FLIGHT.acquire(blocking=False)
+   if not acquired:return self.reply(429,{'error':'Aguarde a solicitação atual terminar.'})
+   return self.reply(200,{'text':transcribe(data.get('audio'),data.get('mime'))})
+  except (ValueError,TypeError):return self.reply(400,{'error':'Gravação inválida.'})
+  except SpeechError as exc:return self.reply(503,{'error':str(exc)})
+  finally:
+   if acquired:IN_FLIGHT.release()
+ def voice_audio(self):
+  acquired=False
+  try:
+   length=int(self.headers.get('Content-Length','0'))
+   if not 1<=length<=12000:return self.reply(413,{'error':'Texto muito longo.'})
    payload=json.loads(self.rfile.read(length))
-   text=str(payload.get('text','')).strip()
-   voice=str(payload.get('voice','nova'))
-   if not text or len(text)>350 or voice not in ('nova','onyx','shimmer','echo'):return self.reply(400,{'error':'Parametros invalidos'})
-   if not TTS_IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Voz ocupada'})
-   try:
-    req=urllib.request.Request('https://api.openai.com/v1/audio/speech',data=json.dumps({'model':'tts-1','voice':voice,'input':text,'response_format':'mp3'}).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
-    with urllib.request.urlopen(req,timeout=25) as res:audio=res.read(600000)
-    if not audio or len(audio)>=600000:return self.reply(502,{'error':'Audio indisponivel'})
-    self.send_response(200);self.send_header('Content-Type','audio/mpeg');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(audio)));self.end_headers();self.wfile.write(audio)
-   finally:TTS_IN_FLIGHT.release()
-  except urllib.error.HTTPError as e:
-   self.reply(503,{'error':'Servico de voz indisponivel no momento'})
-  except Exception:self.reply(502,{'error':'Nao foi possivel gerar a voz'})
+   if not isinstance(payload,dict):raise ValueError('Pedido inválido.')
+   acquired=TTS_IN_FLIGHT.acquire(blocking=False)
+   if not acquired:return self.reply(429,{'error':'Voz ocupada. Tente novamente.'})
+   audio=synthesize(payload.get('text'),payload.get('voice','nova'))
+   self.send_response(200);self.send_header('Content-Type','audio/mpeg');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(audio)));self.end_headers();self.wfile.write(audio)
+  except (ValueError,TypeError):return self.reply(400,{'error':'Texto ou voz inválidos.'})
+  except SpeechError as exc:return self.reply(503,{'error':str(exc)})
+  finally:
+   if acquired:TTS_IN_FLIGHT.release()
  def call_openai(self,key,safe,preferences=None,project=None):
   try:
    instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario fornecer coordenadas geograficas autorizadas no formato latitude,longitude, use-as como valor da cidade na ferramenta de clima, sem perguntar a cidade. Caso contrario, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
@@ -384,6 +395,7 @@ if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
 
 
 

@@ -1,49 +1,36 @@
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
-const source=fs.readFileSync(__dirname+'/bblia_voice.js','utf8');
 function harness(){
- let now=0,sequence=0;const timers=new Map(),pcs=[],tracks=[],events=[];
- const context={console,voiceMode:true,muted:false,history:[],send:{disabled:false},status:{textContent:''},
-  setVoiceUI(){},clearVoiceTimers(){},unlockVoicePlayback(){},dictation:null,recognition:null,waitingVoice:false,
-  add(){},saveChat(){},handleRealtimeMedia:async()=>{},
-  setTimeout(fn,delay){const id=++sequence;timers.set(id,{at:now+delay,fn});return id},clearTimeout(id){timers.delete(id)},
-  navigator:{mediaDevices:{async getUserMedia(){const track={enabled:true,readyState:"live",stopped:false,stop(){this.stopped=true;this.readyState="ended"}};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]}}}},
-  fetch:async()=>({ok:true,json:async()=>({token:'fake-ephemeral'}),text:async()=>'fake SDP'}),
-  document:{body:{append(){}},createElement(){return{style:{},play:async()=>{},pause(){},remove(){}}},getElementById(){return{classList:{remove(){}}}}}};
- class Peer{
-  constructor(){this.connectionState='new';pcs.push(this)}
-  addTrack(){}createOffer(){return Promise.resolve({sdp:'offer'})}setLocalDescription(){return Promise.resolve()}setRemoteDescription(){return Promise.resolve()}
-  createDataChannel(){return this.channel={readyState:'open',send(data){events.push(JSON.parse(data))},close(){this.readyState='closed'}}}
-  close(){this.connectionState='closed'}
- }
- context.RTCPeerConnection=Peer;context.window={RTCPeerConnection:Peer,addEventListener(type,fn){if(type==='pagehide')context.leavePage=fn}};vm.createContext(context);vm.runInContext(source,context);
- const run=code=>vm.runInContext(code,context);
- async function advance(ms){const target=now+ms;while(true){const next=[...timers].filter(([,t])=>t.at<=target).sort((a,b)=>a[1].at-b[1].at)[0];if(!next)break;timers.delete(next[0]);now=next[1].at;next[1].fn();for(let n=0;n<15;n++)await Promise.resolve()}now=target}
- return{context,run,pcs,tracks,events,advance};
+ const timers=new Map(),requests=[],audio=[],events={};let sequence=0;
+ const c={console,voiceMode:false,muted:false,voiceToken:0,voiceIndex:0,currentAudio:null,unlockedAudio:null,voiceOptions:[{api:'nova'}],waitingVoice:false,recognition:null,dictation:null,voiceRestartTimer:null,voiceListenTimer:null,
+  send:{disabled:false},prompt:{value:''},status:{textContent:''},history:[],feed:{lastElementChild:null},setVoiceUI(){},updateMute(){},selectedVoiceRate:()=>1,selectedVoice:()=>null,
+  stopSpeaking(){},speak(){},replyByVoice(){},listenVoice(){},scheduleVoiceListen(){},dictateMessage(){},unlockVoicePlayback(){},clearVoiceTimers(){timers.clear()},localStorage:{setItem(){}},
+  AbortController,Blob,Float32Array,URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},
+  setTimeout(fn,delay){const n=++sequence;timers.set(n,{fn,delay});return n},clearTimeout(n){timers.delete(n)},setInterval(){},clearInterval(){},
+  navigator:{},document:{getElementById:()=>({checked:true,classList:{remove(){}}})},
+  fetch:async(url,options)=>{requests.push({url,data:JSON.parse(options.body)});return{ok:true,blob:async()=>new Blob(['audio'])}},
+  Audio:class{constructor(){audio.push(this)}setAttribute(){}play(){return Promise.resolve()}pause(){}},
+  sendMessage:async()=>{c.received=c.prompt.value},
+ };
+ class Recognition{start(){c.rec=this;c.starts=(c.starts||0)+1}abort(){this.onend?.()}}
+ c.window={SpeechRecognition:Recognition,addEventListener:(name,fn)=>{events[name]=fn}};
+ vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/bblia_voice.js','utf8'),c);
+ const run=code=>vm.runInContext(code,c),flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve()};
+ return {c,run,flush,timers,requests,audio,events};
 }
 (async()=>{
- const h=harness();await h.run('startRealtime()');h.pcs[0].channel.onopen();
- assert.equal(h.tracks[0].enabled,true);
- h.run("handleRealtimeEvent({type:'response.created'},realtimeChannel);handleRealtimeEvent({type:'output_audio_buffer.started'},realtimeChannel)");
- assert.equal(h.tracks[0].enabled,false);
- h.run("handleRealtimeEvent({type:'input_audio_buffer.speech_started'},realtimeChannel);handleRealtimeEvent({type:'response.done',response:{output:[]}},realtimeChannel)");
- assert.equal(h.tracks[0].enabled,false,'must wait for actual speaker playback, not response.done');
- assert.equal(h.events.some(e=>e.type==='response.cancel'),false);
- h.run("handleRealtimeEvent({type:'output_audio_buffer.stopped'},realtimeChannel)");assert.equal(h.tracks[0].enabled,true);
- assert.equal(h.events.at(-1).type,'input_audio_buffer.clear');
- await h.advance(120000);assert.equal(h.context.voiceMode,true);assert.equal(h.pcs[0].connectionState,'new');
- h.pcs[0].connectionState='disconnected';h.pcs[0].onconnectionstatechange();await h.advance(2000);
- h.pcs[0].connectionState='connected';h.pcs[0].onconnectionstatechange();await h.advance(4000);assert.equal(h.pcs.length,1,'transient network loss must not end session');
- h.pcs[0].connectionState='failed';h.pcs[0].onconnectionstatechange();assert.equal(h.context.voiceMode,true);await h.advance(1000);assert.equal(h.pcs.length,2);
- assert.equal(h.tracks.length,1,'reconnect must reuse microphone, without asking permission again');
- assert.equal(h.tracks[0].stopped,false);h.pcs[1].channel.onopen();assert.equal(h.tracks[0].enabled,true);
- h.run('toggleVoice()');await h.advance(60*60*1000);assert.equal(h.context.voiceMode,false);assert.equal(h.pcs.length,2);assert.equal(h.tracks.every(t=>t.stopped),true);
- const stale=harness();let release;stale.context.navigator.mediaDevices.getUserMedia=()=>new Promise(r=>release=r);
- const pending=stale.run('startRealtime()');stale.run('toggleVoice()');const track={stopped:false,stop(){this.stopped=true}};release({getTracks:()=>[track]});await pending;assert.equal(track.stopped,true);assert.equal(stale.pcs.length,0);
- const renewal=harness();await renewal.run('startRealtime()');renewal.pcs[0].channel.onopen();renewal.run('realtimeOutputActive=true');await renewal.advance(50*60*1000);assert.equal(renewal.pcs.length,1);renewal.run('realtimeOutputActive=false');await renewal.advance(15000);assert.equal(renewal.pcs.length,2);
- assert.equal(renewal.tracks.length,1,'renewal must reuse microphone');
- const exit=harness();await exit.run('startRealtime()');exit.pcs[0].channel.onopen();exit.context.leavePage();assert.equal(exit.tracks[0].stopped,true);assert.equal(exit.context.voiceMode,false);
- const ended=harness();await ended.run('startRealtime()');ended.pcs[0].channel.onopen();ended.tracks[0].readyState='ended';ended.run('reconnectRealtime()');await ended.advance(1000);assert.equal(ended.tracks.length,2,'ended capture needs a fresh microphone');
- const initial=harness();assert.equal(initial.tracks.length,0,'opening app does not request microphone');
- console.log('PASS: playback noise gating, no response cancellation, continuous beyond 2 min, transient loss, automatic reconnect, explicit stop, stale permission race, idle session renewal');
+ const h=harness();h.run('muted=true;toggleVoice()');assert.equal(h.c.muted,false);assert.equal(h.c.starts,1);assert.equal(h.requests.length,0,'starting voice does not call OpenAI realtime');
+ h.c.rec.onresult({results:[[{transcript:'Bom dia'}]]});h.c.rec.onend();await h.flush();assert.equal(h.c.received,'Bom dia');
+ h.run('toggleVoice()');assert.equal(h.c.voiceMode,false);
+ const s=harness();const long='Uma resposta longa para ouvir por completo. '.repeat(30)+'FIM.';
+ s.c.answer=long;const pending=s.run('speak(answer)');await s.flush();assert.equal(s.requests.length,1);
+ s.run('voiceMode=true;scheduleVoiceListen()');assert.equal([...s.timers.values()].some(t=>t.delay===300),false,'no microphone restart while speaking');
+ for(let i=0;i<10;i++){const player=s.audio.at(-1);if(!player?.onended)break;player.onended();await s.flush()}
+ await pending;assert.ok(s.requests.at(-1).data.text.includes('FIM.'));assert.ok(s.requests.length>1);assert.equal(s.requests.some(r=>/openai|realtime/.test(r.url)),false);
+ const cancel=harness();cancel.c.answer=long;const stopped=cancel.run('speak(answer)');await cancel.flush();cancel.run('stopSpeaking()');await stopped;assert.equal(cancel.requests.length,1);
+ const denied=harness();denied.run('toggleVoice()');denied.c.rec.onerror({error:'not-allowed'});assert.equal(denied.c.voiceMode,false);assert.match(denied.c.status.textContent,/Autorize/);
+ // A late microphone permission response after stopping must release the stream.
+ const stale=harness();let release;stale.c.navigator.mediaDevices={getUserMedia:()=>new Promise(r=>release=r)};stale.c.window.MediaRecorder=class{};
+ stale.run('voiceMode=true;voiceUseRecorder=true');const capture=stale.run('captureVoice()');stale.run('voiceMode=false;endRealtime()');let stoppedTrack=false;release({getTracks:()=>[{stop(){stoppedTrack=true}}]});await capture;assert.equal(stoppedTrack,true);
+ h.events.pagehide();assert.equal(h.c.voiceMode,false);
+ console.log('PASS full speech, no paid calls, playback gating, stop cancellation, permission denial, stale microphone cleanup, page exit');
 })().catch(e=>{console.error(e);process.exitCode=1});
-

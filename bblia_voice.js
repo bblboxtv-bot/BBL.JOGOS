@@ -1,165 +1,166 @@
 'use strict';
-let realtimePC=null,realtimeStream=null,realtimeAudio=null,realtimeChannel=null;
-let realtimeTimer=null,realtimeConnecting=false,realtimeReconnectTimer=null,realtimeDisconnectTimer=null,realtimeConnectTimer=null;
-let realtimeGeneration=0,realtimeReconnectAttempt=0,realtimeResponseActive=false,realtimeOutputActive=false,realtimeUserSpeaking=false;
-const realtimeTranscripts=new Set();
+// Browser recognition + Gemini audio transcription; no paid realtime session.
+let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
+let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
+let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
+let voiceAnalyser=null,voiceSource=null,voiceOneShot=false;
 
-function syncRealtimeMicrophone(){
- const listening=voiceMode&&!realtimeResponseActive&&!realtimeOutputActive&&!send.disabled;
- realtimeStream?.getAudioTracks().forEach(track=>{track.enabled=listening});
+function endRealtime(){
+ voiceGeneration++;clearVoiceTimers();clearInterval(voiceMeterTimer);voiceMeterTimer=null;
+ voiceRequest?.abort();voiceRequest=null;
+ if(recognition){recognition.onend=recognition.onresult=recognition.onerror=null;try{recognition.abort()}catch(e){}recognition=null}
+ const recorder=voiceRecorder;voiceRecorder=null;
+ if(recorder){recorder.onstop=null;if(recorder.state!=='inactive')try{recorder.stop()}catch(e){}}
+ voiceCapture?.getTracks().forEach(t=>t.stop());voiceCapture=null;
+ try{voiceSource?.disconnect()}catch(e){}voiceSource=voiceAnalyser=null;
+ if(voiceContext){voiceContext.close().catch(()=>{});voiceContext=null}
+ realtimeConnecting=false;waitingVoice=false;voiceOneShot=false;
 }
-function sendRealtimeEvent(channel,event){
- if(channel?.readyState==='open')channel.send(JSON.stringify(event));
+stopSpeaking=function(){
+ voiceToken++;voiceRequest?.abort();voiceRequest=null;
+ voiceCancelPlayback?.();voiceCancelPlayback=null;
+ if(currentAudio){currentAudio.pause();currentAudio=null}
+ if('speechSynthesis' in window)speechSynthesis.cancel();
+ voiceSpeaking=false;
+};
+function speechChunks(text,max=550){
+ const clean=String(text).replace(/```[\s\S]*?```/g,' Trecho de código disponível na tela. ').replace(/https?:\/\/\S+/g,'').replace(/[*#`]/g,'').trim();
+ const parts=[];let rest=clean;
+ while(rest.length>max){let cut=Math.max(rest.lastIndexOf('. ',max),rest.lastIndexOf('! ',max),rest.lastIndexOf('? ',max));if(cut<max/3)cut=rest.lastIndexOf(' ',max);if(cut<1)cut=max;else cut++;parts.push(rest.slice(0,cut));rest=rest.slice(cut).trim()}
+ if(rest)parts.push(rest);return parts;
 }
-function endRealtime({preserveMicrophone=false}={}){
- realtimeGeneration++;
- for(const timer of [realtimeTimer,realtimeReconnectTimer,realtimeDisconnectTimer,realtimeConnectTimer])clearTimeout(timer);
- realtimeTimer=realtimeReconnectTimer=realtimeDisconnectTimer=realtimeConnectTimer=null;realtimeConnecting=false;
- realtimeResponseActive=realtimeOutputActive=realtimeUserSpeaking=false;
- const pc=realtimePC,channel=realtimeChannel,stream=realtimeStream,audio=realtimeAudio;
- const keepMicrophone=preserveMicrophone&&voiceMode&&stream?.getAudioTracks().some(track=>track.readyState==='live');
- realtimePC=realtimeChannel=realtimeAudio=null;
- realtimeStream=keepMicrophone?stream:null;
- if(channel){channel.onopen=channel.onmessage=channel.onclose=channel.onerror=null;try{channel.close()}catch(e){}}
- if(pc){pc.ontrack=pc.onconnectionstatechange=null;try{pc.close()}catch(e){}}
- if(keepMicrophone)stream.getAudioTracks().forEach(track=>{track.enabled=false});
- else stream?.getTracks().forEach(track=>track.stop());
- if(audio){audio.pause();audio.srcObject=null;audio.remove()}
+function deviceSpeech(text,token){
+ return new Promise((resolve,reject)=>{
+  if(token!==voiceToken)return resolve();
+  if(!('speechSynthesis' in window))return reject(Error('Voz indisponível neste aparelho.'));
+  const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';utterance.rate=selectedVoiceRate();
+  const selected=selectedVoice();if(selected)utterance.voice=selected;
+  let timer;const finish=error=>{clearTimeout(timer);voiceCancelPlayback=null;error?reject(error):resolve()};
+  voiceCancelPlayback=()=>finish();utterance.onend=()=>finish();utterance.onerror=e=>finish(Error(e.error||'Falha na voz do aparelho.'));
+  timer=setTimeout(()=>{speechSynthesis.cancel();finish(Error('A voz do aparelho não respondeu.'))},Math.max(20000,text.length*150));
+  speechSynthesis.speak(utterance);speechSynthesis.resume();
+ });
 }
-function reconnectRealtime(message='Reconectando a conversa por voz...',delay=null){
- if(!voiceMode||realtimeReconnectTimer)return;
- const attempt=realtimeReconnectAttempt+1;
- endRealtime({preserveMicrophone:true});realtimeReconnectAttempt=attempt;setVoiceUI();status.textContent=message;
- realtimeReconnectTimer=setTimeout(()=>{realtimeReconnectTimer=null;if(voiceMode)startRealtime()},delay??Math.min(15000,1000*2**Math.min(attempt-1,4)));
+async function playSpeechBlob(blob,token){
+ const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;currentAudio=audio;
+ try{await new Promise((resolve,reject)=>{
+  let timer;const finish=error=>{clearTimeout(timer);audio.onended=audio.onerror=null;voiceCancelPlayback=null;error?reject(error):resolve()};
+  voiceCancelPlayback=()=>finish();audio.onended=()=>finish();audio.onerror=()=>finish(Error('Falha ao reproduzir áudio.'));
+  timer=setTimeout(()=>{audio.pause();finish(Error('A reprodução não terminou.'))},180000);
+  if(token!==voiceToken)return finish();audio.play().catch(finish);
+ })}finally{URL.revokeObjectURL(url);if(currentAudio===audio)currentAudio=null}
 }
-function rememberVoice(role,text,id){
- if(!text?.trim()||realtimeTranscripts.has(id))return;
- realtimeTranscripts.add(id);
- if(realtimeTranscripts.size>2000)realtimeTranscripts.delete(realtimeTranscripts.values().next().value);
- history.push({role,content:text.trim()});add(role,text.trim());
- if(typeof saveChat==='function')saveChat();
+speak=async function(text){
+ stopSpeaking();const token=voiceToken;voiceSpeaking=true;
+ try{for(const chunk of speechChunks(text)){
+  if(token!==voiceToken)return;
+  const controller=new AbortController();voiceRequest=controller;
+  const timeout=setTimeout(()=>controller.abort(),25000);
+  let blob;
+  try{const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:chunk,voice:voiceOptions[voiceIndex]?.api||'nova'}),signal:controller.signal});if(!response.ok)throw Error('Serviço de voz indisponível.');blob=await response.blob();if(!blob.size)throw Error('Áudio vazio.')}
+  catch(e){if(token!==voiceToken)return;await deviceSpeech(chunk,token);continue}
+  finally{clearTimeout(timeout);if(voiceRequest===controller)voiceRequest=null}
+  if(token!==voiceToken)return;
+  try{await playSpeechBlob(blob,token)}catch(e){if(token!==voiceToken)return;await deviceSpeech(chunk,token)}
+ }}finally{if(token===voiceToken)voiceSpeaking=false}
+};
+function offerVoiceReplay(answer){
+ const bubble=feed.lastElementChild;if(!bubble)return;
+ bubble.querySelector?.('.voice-replay')?.remove();
+ const button=document.createElement('button');button.className='subbtn voice-replay';button.textContent='🔊 Ouvir resposta';
+ button.onclick=()=>{unlockVoicePlayback();replyByVoice(answer)};bubble.append(button);
 }
-function handleRealtimeEvent(event,channel){
- if(!voiceMode||channel!==realtimeChannel)return;
- if(event.type==='input_audio_buffer.speech_started'){
-  realtimeUserSpeaking=true;
-  if(!realtimeOutputActive&&!realtimeResponseActive)status.textContent='🎙️ Ouvindo você...';
+replyByVoice=async function(answer){
+ waitingVoice=true;
+ if(!muted){
+  status.textContent='🔊 BBLIA falando...';
+  try{await speak(answer);status.textContent='Resposta concluída'}catch(e){status.textContent='Toque em Ouvir resposta para ativar o som.';offerVoiceReplay(answer)}
  }
- if(event.type==='input_audio_buffer.speech_stopped')realtimeUserSpeaking=false;
- if(event.type==='response.created'){
-  realtimeResponseActive=true;syncRealtimeMicrophone();status.textContent='🔊 Preparando sua resposta...';
- }
- if(event.type==='output_audio_buffer.started'){
-  realtimeOutputActive=true;syncRealtimeMicrophone();status.textContent='🔊 BBLIA falando. Aguarde a resposta terminar.';
- }
- if(event.type==='output_audio_buffer.stopped'||event.type==='output_audio_buffer.cleared'){
-  realtimeOutputActive=false;
-  // Discard residual noise/echo captured before the microphone was gated.
-  sendRealtimeEvent(channel,{type:'input_audio_buffer.clear'});
-  syncRealtimeMicrophone();
-  if(!realtimeResponseActive&&!send.disabled)status.textContent='🎙️ Pode falar. Continuo ouvindo.';
- }
- if(event.type==='conversation.item.input_audio_transcription.completed'){
-  rememberVoice('user',event.transcript,'user:'+event.item_id);
- }
- if(event.type==='response.output_audio_transcript.done'||event.type==='response.audio_transcript.done'){
-  rememberVoice('assistant',event.transcript,'assistant:'+event.item_id+':'+event.content_index);
- }
- if(event.type==='response.done'){
-  realtimeResponseActive=false;
-  const calls=(event.response?.output||[]).filter(item=>item.type==='function_call'&&['criar_midia','fazer_trabalho'].includes(item.name));
-  for(const call of calls)Promise.resolve(call.name==='fazer_trabalho'?handleRealtimeWork(call,channel):handleRealtimeMedia(call,channel)).finally(()=>{if(channel===realtimeChannel)syncRealtimeMicrophone()});
-  syncRealtimeMicrophone();
-  // response.done can precede the end of actual speaker playback.
-  if(!realtimeOutputActive&&!send.disabled)status.textContent='🎙️ Pode fazer a próxima pergunta';
- }
- if(event.type==='error'){
-  const code=event.error?.code||'';
-  if(/session_expired|session_timeout/.test(code))reconnectRealtime();
-  else{realtimeResponseActive=false;syncRealtimeMicrophone();status.textContent='Falha na resposta de voz: '+(event.error?.message||'aguardando a próxima pergunta')}
- }
+ waitingVoice=false;
+ if(voiceMode&&document.getElementById('auto').checked)scheduleVoiceListen(450);
+};
+scheduleVoiceListen=function(delay=300){
+ clearTimeout(voiceRestartTimer);
+ if(!voiceMode||waitingVoice||voiceSpeaking)return;
+ voiceRestartTimer=setTimeout(()=>{voiceRestartTimer=null;if(voiceMode&&!waitingVoice&&!voiceSpeaking&&!send.disabled)listenVoice()},delay);
+};
+function voiceFailure(error){
+ const denied=['NotAllowedError','PermissionDeniedError','not-allowed','service-not-allowed'].includes(error?.name||error?.error);
+ if(denied){voiceMode=false;endRealtime();setVoiceUI();status.textContent='Autorize o microfone nas configurações do aplicativo ou navegador.';return}
+ waitingVoice=false;status.textContent=error?.message||'Não consegui ouvir. Tente falar novamente.';
+ if(voiceMode)scheduleVoiceListen(1800);
 }
-function renewRealtimeWhenIdle(){
- if(!voiceMode)return;
- if(realtimeResponseActive||realtimeOutputActive||realtimeUserSpeaking||send.disabled){
-  realtimeTimer=setTimeout(renewRealtimeWhenIdle,15000);return;
- }
- reconnectRealtime('Renovando a conexão de voz. A conversa continua...',0);
+async function sendRecognizedVoice(text){
+ if(!text?.trim()){waitingVoice=false;if(voiceMode)scheduleVoiceListen(400);return}
+ waitingVoice=true;prompt.value=text.trim();status.textContent='Enviando sua pergunta...';
+ try{await sendMessage()}finally{waitingVoice=false;if(voiceMode&&!voiceSpeaking&&document.getElementById('auto').checked)scheduleVoiceListen(450)}
 }
-async function startRealtime(){
- if(!voiceMode||realtimeConnecting||realtimePC)return;
- const generation=++realtimeGeneration;
- const current=()=>voiceMode&&generation===realtimeGeneration;
- realtimeConnecting=true;setVoiceUI();status.textContent='Conectando conversa por voz...';
- let stream=null;
+async function captureVoice(){
+ if(realtimeConnecting||voiceRecorder||waitingVoice||voiceSpeaking)return;
+ const generation=voiceGeneration;realtimeConnecting=true;
+ const active=()=>generation===voiceGeneration&&(voiceMode||voiceOneShot);
  try{
-  if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection){
-   voiceMode=false;setVoiceUI();status.textContent='Este navegador não permite conversa por voz. Abra no Safari ou Chrome.';realtimeConnecting=false;return;
+  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw Error('Este aparelho não permite gravar a voz. Use o microfone do teclado.');
+  if(!voiceCapture?.getAudioTracks().some(t=>t.readyState==='live')){
+   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+   if(!active()){stream.getTracks().forEach(t=>t.stop());return}voiceCapture=stream;
   }
-  stream=realtimeStream?.getAudioTracks().some(track=>track.readyState==='live')?realtimeStream:
-   await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
-  if(!current()){if(stream!==realtimeStream||!voiceMode)stream.getTracks().forEach(track=>track.stop());return}
-  realtimeStream=stream;
-  realtimeConnectTimer=setTimeout(()=>{if(current())reconnectRealtime()},30000);
-  const tokenResponse=await fetch('/api/realtime-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-  if(!current())return;
-  const data=await tokenResponse.json();
-  if(!tokenResponse.ok)throw Error(data.error||'Falha ao conectar a voz');
-  if(!current())return;
-  const pc=new RTCPeerConnection();realtimePC=pc;
-  const audio=document.createElement('audio');audio.autoplay=true;audio.playsInline=true;audio.muted=muted;audio.style.display='none';document.body.append(audio);realtimeAudio=audio;
-  pc.ontrack=event=>{if(!current())return;audio.srcObject=event.streams[0];audio.play().catch(()=>{status.textContent='O navegador bloqueou o som. Toque para reabrir a conversa.'})};
-  stream.getTracks().forEach(track=>pc.addTrack(track,stream));
-  const channel=pc.createDataChannel('oai-events');realtimeChannel=channel;
-  channel.onopen=()=>{
-   if(!current())return;
-   clearTimeout(realtimeConnectTimer);realtimeConnectTimer=null;
-   realtimeReconnectAttempt=0;realtimeConnecting=false;
-   // Restore recent text context when a connection is renewed.
-   for(const message of history.slice(-16)){
-    if(!['user','assistant'].includes(message.role)||!message.content?.trim())continue;
-    sendRealtimeEvent(channel,{type:'conversation.item.create',item:{type:'message',role:message.role,content:[{type:message.role==='user'?'input_text':'text',text:message.content.slice(0,2000)}]}});
-   }
-   syncRealtimeMicrophone();status.textContent='🎙️ Conectado. Pode falar normalmente.';
-   // Renew before the provider's session expiry, only between turns.
-   realtimeTimer=setTimeout(renewRealtimeWhenIdle,50*60*1000);
+  if(!active())return;
+  if(!voiceContext){const AC=window.AudioContext||window.webkitAudioContext;voiceContext=new AC();voiceSource=voiceContext.createMediaStreamSource(voiceCapture);voiceAnalyser=voiceContext.createAnalyser();voiceAnalyser.fftSize=1024;voiceSource.connect(voiceAnalyser)}
+  await voiceContext.resume();if(!active())return;
+  const mime=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(t=>MediaRecorder.isTypeSupported(t));
+  const recorder=new MediaRecorder(voiceCapture,mime?{mimeType:mime}:{});voiceRecorder=recorder;
+  const chunks=[];let bytes=0,heard=false,loudSince=0,lastLoud=0,started=Date.now();
+  recorder.ondataavailable=e=>{if(e.data.size){chunks.push(e.data);bytes+=e.data.size}};
+  recorder.onerror=()=>{if(active()){endRealtime();voiceMode=false;setVoiceUI();status.textContent='Falha ao gravar a voz. Toque no microfone para tentar novamente.'}};
+  recorder.onstop=async()=>{
+   clearInterval(voiceMeterTimer);voiceMeterTimer=null;if(voiceRecorder===recorder)voiceRecorder=null;
+   if(!active())return;
+   if(!heard||bytes<100){if(voiceMode)scheduleVoiceListen(150);else{endRealtime();status.textContent='Nenhuma fala reconhecida.'}return}
+   waitingVoice=true;status.textContent='Reconhecendo sua fala...';
+   const controller=new AbortController();voiceRequest=controller;const timeout=setTimeout(()=>controller.abort(),40000);
+   try{
+    const blob=new Blob(chunks,{type:recorder.mimeType||mime});
+    const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)});
+    if(!active())return;
+    const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encoded,mime:blob.type}),signal:controller.signal});const result=await response.json();
+    if(!active())return;if(!response.ok)throw Error(result.error||'Falha no reconhecimento.');
+    waitingVoice=false;await sendRecognizedVoice(result.text);
+   }catch(e){if(active())voiceFailure(e)}finally{clearTimeout(timeout);if(voiceRequest===controller)voiceRequest=null;if(voiceOneShot)endRealtime()}
   };
-  channel.onmessage=event=>{if(!current())return;try{handleRealtimeEvent(JSON.parse(event.data),channel)}catch(e){status.textContent='Aguardando a próxima pergunta...'}};
-  channel.onclose=()=>{if(current())reconnectRealtime()};
-  channel.onerror=()=>{if(current())reconnectRealtime()};
-  pc.onconnectionstatechange=()=>{
-   if(!current())return;
-   if(pc.connectionState==='connected'){clearTimeout(realtimeDisconnectTimer);realtimeDisconnectTimer=null}
-   if(pc.connectionState==='disconnected'){
-    if(!realtimeDisconnectTimer)realtimeDisconnectTimer=setTimeout(()=>{realtimeDisconnectTimer=null;if(current()&&pc.connectionState==='disconnected')reconnectRealtime()},5000);
-   }
-   if(['failed','closed'].includes(pc.connectionState))reconnectRealtime();
-  };
-  const offer=await pc.createOffer();if(!current())return;
-  await pc.setLocalDescription(offer);if(!current())return;
-  const response=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',headers:{'Authorization':'Bearer '+data.token,'Content-Type':'application/sdp'},body:offer.sdp});
-  if(!current())return;
-  if(!response.ok)throw Error('Conexão de áudio recusada ('+response.status+')');
-  const answer=await response.text();if(!current())return;
-  await pc.setRemoteDescription({type:'answer',sdp:answer});
- }catch(error){
-  if(!current())return;
-  if(['NotAllowedError','PermissionDeniedError'].includes(error.name)){
-   voiceMode=false;endRealtime();setVoiceUI();status.textContent='Permita o microfone no navegador para conversar.';
-  }else reconnectRealtime('Reconectando a voz automaticamente...');
- }
+  recorder.start(200);status.textContent='🎙️ Pode falar. Estou ouvindo.';
+  const samples=new Float32Array(voiceAnalyser.fftSize);
+  voiceMeterTimer=setInterval(()=>{
+   if(!active()||recorder.state!=='recording')return;
+   voiceAnalyser.getFloatTimeDomainData(samples);const rms=Math.sqrt(samples.reduce((sum,v)=>sum+v*v,0)/samples.length),now=Date.now();
+   if(rms>0.025){if(!loudSince)loudSince=now;if(now-loudSince>=200)heard=true;lastLoud=now}else loudSince=0;
+   // Send only after speech and a pause. Silence never sends a chat message.
+   if((heard&&now-lastLoud>1200)||now-started>35000||bytes>1800000){clearInterval(voiceMeterTimer);voiceMeterTimer=null;recorder.stop()}
+  },100);
+ }catch(e){if(active())voiceFailure(e)}finally{if(generation===voiceGeneration)realtimeConnecting=false}
 }
+listenVoice=function(){
+ if(!voiceMode||waitingVoice||voiceSpeaking||send.disabled||recognition||voiceRecorder||realtimeConnecting)return;
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR||voiceUseRecorder){captureVoice();return}
+ const generation=voiceGeneration,rec=new SR();recognition=rec;let spoken='',fallback=false;
+ rec.lang='pt-BR';rec.continuous=false;rec.interimResults=false;
+ rec.onresult=e=>{if(generation!==voiceGeneration)return;spoken=Array.from(e.results).filter(r=>r.isFinal!==false).map(r=>r[0].transcript).join(' ').trim();if(spoken)waitingVoice=true};
+ rec.onerror=e=>{if(generation!==voiceGeneration)return;if(e.error==='not-allowed'){voiceFailure(e);return}if(e.error!=='no-speech'&&e.error!=='aborted'){voiceUseRecorder=true;fallback=true}};
+ rec.onend=()=>{if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(spoken)sendRecognizedVoice(spoken);else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};
+ try{rec.start();status.textContent='🎙️ Pode falar. Estou ouvindo.'}catch(e){recognition=null;voiceUseRecorder=true;captureVoice()}
+};
 function toggleVoice(){
- if(voiceMode){
-  voiceMode=false;endRealtime();clearVoiceTimers();try{recognition?.abort()}catch(e){}recognition=null;
-  waitingVoice=false;status.textContent='Conversa por voz encerrada';setVoiceUI();return;
- }
- unlockVoicePlayback();
- if(dictation){dictation.onend=null;dictation.stop();dictation=null;document.getElementById('dictate').classList.remove('listening')}
- clearVoiceTimers();try{recognition?.abort()}catch(e){}recognition=null;
- voiceMode=true;realtimeReconnectAttempt=0;startRealtime();
-}
-
-
-// Release capture when leaving the app; reuse is limited to the active voice conversation.
-window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime()});
+ if(voiceMode){voiceMode=false;endRealtime();stopSpeaking();status.textContent='Conversa por voz encerrada';setVoiceUI();return}
+ if(send.disabled){status.textContent='Aguarde a resposta atual terminar.';return}
+ unlockVoicePlayback();stopSpeaking();endRealtime();
+ if(dictation){dictation.onend=null;try{dictation.abort()}catch(e){}dictation=null;document.getElementById('dictate').classList.remove('listening')}
+ voiceMode=true;muted=false;localStorage.setItem('bblia_muted','0');updateMute();setVoiceUI();listenVoice();
+};
+const originalDictateMessage=dictateMessage;
+dictateMessage=function(){
+ if(voiceMode)return;
+ if(window.SpeechRecognition||window.webkitSpeechRecognition)return originalDictateMessage();
+ unlockVoicePlayback();endRealtime();voiceOneShot=true;captureVoice();
+};
+window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime();stopSpeaking()});
