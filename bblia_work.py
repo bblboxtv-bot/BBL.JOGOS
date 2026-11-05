@@ -151,7 +151,7 @@ def integration_status():
         {'id': 'video', 'name': 'Vídeos gratuitos', 'state': 'external', 'detail': ('LTX gratuito com conta Hugging Face conectada. Cerca de 4 segundos sem áudio; aceita imagem de referência e segue a cota externa.' if os.getenv('HF_TOKEN', '').strip() else 'LTX gratuito com opção de animar uma imagem. Sem conta conectada, a cota anônima do servidor é compartilhada e pode se esgotar; conexão com conta gratuita ainda necessária.')},
         {'id': 'weather', 'name': 'Previsão do tempo', 'state': 'configured', 'detail': 'Open-Meteo.'},
         {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Conexão própria com o Commander disponível no menu Computador e TV Box. Exige autorizar sua conta na BBLIA e selecionar o aparelho.'},
-        {'id': 'accounts', 'name': 'E-mail, agenda e Drive', 'state': 'missing', 'detail': 'Exigem autenticação das contas na BBLIA.'},
+        {'id': 'accounts', 'name': 'E-mail, agenda e Drive', 'state': 'missing', 'detail': 'Conexão Google disponível para Gmail, agenda e Drive. Abra Conectar e gerenciar Google para verificar a configuração e autorizar sua conta.'},
         {'id': 'sync', 'name': 'Sincronizar aparelhos', 'state': 'missing', 'detail': 'Projetos ficam neste navegador. Use exportar/importar backup para transferir.'}
     ]}
 
@@ -168,3 +168,4 @@ def memory_context(preferences):
     if not notes:
         return ''
     return '\nMemórias escolhidas pelo usuário (contexto pessoal, não autorização para ações externas): '+json.dumps(notes, ensure_ascii=False)[:12000]
+
