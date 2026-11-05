@@ -1,0 +1,12 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const html=fs.readFileSync('reference-video-index.html','utf8');
+const code=html.slice(html.indexOf('function renderMedia('),html.indexOf('async function pollMedia('));
+(async()=>{const children=[];let request;
+const context={document:{body:{classList:{add(){}}},createElement(tag){return {tag,style:{},setAttribute(){}}}},prompt:{value:''},send:{disabled:false},status:{},submitMedia:async(...args)=>request=args};
+vm.createContext(context);vm.runInContext(code,context);
+context.renderMedia({replaceChildren(){},append(...nodes){children.push(...nodes)}},{kind:'image',image:'data:image/png;base64,dGVzdA=='},'Referência do personagem');
+const button=children.find(n=>n.tag==='button'&&n.textContent.includes('Criar vídeo'));assert(button);
+await button.onclick();assert.equal(request[0],'video');assert.equal(request[2].type,'image');assert.equal(request[2].data,'data:image/png;base64,dGVzdA==');
+context.prompt.value='Faça o personagem acenar';await button.onclick();assert.equal(request[1],'Faça o personagem acenar');
+console.log('PASS generated image to video action preserves reference and user motion');
+})().catch(e=>{console.error(e);process.exit(1)});

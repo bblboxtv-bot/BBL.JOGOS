@@ -29,7 +29,7 @@ class MediaError(Exception):
 
 def capabilities():
     return {'image': bool(os.getenv('OPENAI_API_KEY')),
-            'video': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False, 'video_app_daily_limit': None,
+            'video': True, 'video_reference': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False, 'video_app_daily_limit': None,
             'video_account_connected': bool(os.getenv('HF_TOKEN', '').strip()),
             'video_notice': 'Vídeos gratuitos pelo LTX Video, sujeitos à cota do Hugging Face e à disponibilidade da fila.'}
 
@@ -122,7 +122,26 @@ def free_video_error(details):
     return MediaError('O gerador gratuito de vídeo não concluiu o pedido. O vídeo não foi criado e não houve cobrança pela BBLIA.', 503, 'video_provider_error')
 
 
-def generate_video(prompt):
+def upload_video_reference(reference):
+    from bblia_work import attachment_parts
+    attachment_parts([reference])
+    if reference.get('type') != 'image':
+        raise MediaError('Use uma imagem PNG, JPEG ou WEBP para animar.')
+    mime, encoded = reference['data'].split(';base64,',1)
+    mime = mime.removeprefix('data:')
+    boundary = 'bblia'+uuid.uuid4().hex
+    body = (('--'+boundary+'\r\nContent-Disposition: form-data; name="files"; filename="reference.png"\r\nContent-Type: '+mime+'\r\n\r\n').encode()
+            +base64.b64decode(encoded,validate=True)+('\r\n--'+boundary+'--\r\n').encode())
+    headers = {**free_video_headers(),'Content-Type':'multipart/form-data; boundary='+boundary}
+    request = urllib.request.Request(FREE_VIDEO_HOST+'/gradio_api/upload',data=body,headers=headers)
+    with urllib.request.urlopen(request,timeout=60) as response:
+        paths = json.load(response)
+    if not isinstance(paths,list) or not paths or not isinstance(paths[0],str) or not paths[0].startswith('/tmp/'):
+        raise MediaError('O gerador gratuito não recebeu a imagem de referência.',502)
+    return {'path':paths[0],'orig_name':'reference.png','meta':{'_type':'gradio.FileData'}}
+
+
+def generate_video(prompt, reference=None):
     headers = free_video_headers()
     parameters = [prompt, 'blurry, distorted, inconsistent motion, jittery',
                   None, None, 480, 832, 'text-to-video', 4.0, 9, 42, True, 1.0, False]
@@ -133,10 +152,15 @@ def generate_video(prompt):
         config_req = urllib.request.Request(FREE_VIDEO_HOST + '/config', headers=headers)
         with urllib.request.urlopen(config_req, timeout=30) as response:
             config = json.load(response)
+        api_name = 'image_to_video' if reference else 'text_to_video'
         dependency = next((item for item in config.get('dependencies', [])
-                           if item.get('api_name') == 'text_to_video'), None)
+                           if item.get('api_name') == api_name), None)
         if not dependency or not isinstance(dependency.get('id'), int):
             raise MediaError('O gerador gratuito mudou sua integração. A conexão precisa ser atualizada.', 503, 'video_contract_changed')
+        if reference:
+            parameters[2] = upload_video_reference(reference)
+            parameters[4:6] = [512,512]
+            parameters[6] = 'image-to-video'
         payload = {'data': parameters, 'fn_index': dependency['id'], 'session_hash': session}
         request = urllib.request.Request(FREE_VIDEO_HOST + '/gradio_api/queue/join',
                                          data=json.dumps(payload).encode(), headers=headers)
@@ -227,7 +251,7 @@ def start_job(kind, prompt, client, reference=None):
     if reference:
         from bblia_work import attachment_parts
         attachment_parts([reference])
-        if reference.get('type') != 'image' or kind != 'image':
+        if reference.get('type') != 'image':
             raise MediaError('Anexe uma imagem para editar.')
     if not capabilities()[kind]:
         raise MediaError('A geração de imagens ainda precisa conectar a conta OpenAI.', 503)
@@ -254,7 +278,7 @@ def start_job(kind, prompt, client, reference=None):
 
     def work():
         try:
-            result = generate_image(prompt.strip(), reference) if kind == 'image' else generate_video(prompt.strip())
+            result = generate_image(prompt.strip(), reference) if kind == 'image' else generate_video(prompt.strip(),reference)
             if kind == 'video':
                 path = cache_video(result['video'], job_id)
                 result.update(video='/api/media/jobs/' + job_id + '/video', _video_path=str(path))
@@ -280,4 +304,5 @@ def get_job(job_id):
         if job is None:
             raise MediaError('Criação não encontrada ou expirada. O servidor pode ter reiniciado.', 404)
         return {key: value for key, value in job.items() if key != 'created' and not key.startswith('_')}
+
 

@@ -76,14 +76,14 @@ async function handleRealtimeMedia(call,channel){
   const args=JSON.parse(call.arguments||'{}');
   if(!['image','video'].includes(args.kind)||typeof args.prompt!=='string')throw Error('Descrição de mídia inválida.');
   if(send.disabled)result={status:'failed',error:'Aguarde a criação atual terminar.'};
-  else result=await submitMedia(args.kind,args.prompt);
+  else{const refs=typeof attachments!=='undefined'&&attachments.length?attachments:(typeof currentChat==='function'?currentChat()?.files||[]:[]);result=await submitMedia(args.kind,args.prompt,args.kind==='video'?refs.find(f=>f.type==='image')||null:null)}
  }catch(e){result={status:'failed',error:e.message}}
  if(channel.readyState==='open'){
   channel.send(JSON.stringify({type:'conversation.item.create',item:{type:'function_call_output',call_id:call.call_id,output:JSON.stringify(result)}}));
   channel.send(JSON.stringify({type:'response.create'}));
  }
 }
-function submitMedia(kind,text){add('user',text);return generateMedia(kind,text)}
+function submitMedia(kind,text,reference=null){add('user',text);return generateMedia(kind,text,null,reference)}
 function mediaIntent(text){
  const t=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  const request=/\b(cri(?:e|ar|a)|ger(?:e|ar|a)|fac(?:a|er)|faz(?:er)?|produz(?:a|ir)?|desenh(?:e|ar|a)|monte|montar|quero|preciso)\b/;
@@ -109,6 +109,12 @@ function renderMedia(bubble,data,text){
   media.onerror=()=>{hint.textContent='O vídeo não carregou. Use Abrir vídeo ou tente recarregar o player.';status.textContent='Falha ao carregar o vídeo'};
  }else media.alt=text;
  media.src=data.video||data.image;bubble.append(media);
+ if(!isVideo){
+  const animate=document.createElement('button');animate.className='subbtn';animate.textContent='🎬 Criar vídeo desta imagem';
+  animate.onclick=async()=>{if(send.disabled)return;const movement=prompt.value.trim()||'The same character from the reference image moves and dances naturally. Preserve the face, clothes, art style and background. Smooth motion, static camera.';prompt.value='';await submitMedia('video',movement,{name:'reference.png',type:'image',data:data.image})};
+  bubble.append(animate);
+ }
+
  const link=document.createElement('a');link.href=media.src;link.download=isVideo?'bblia-video.mp4':'bblia-imagem.png';link.textContent=isVideo?'▶ Abrir vídeo':'⬇ Salvar imagem';link.style.cssText='display:block;padding:12px;color:#ffdc88';
  if(isVideo){link.target='_blank';link.rel='noopener';link.style.display='inline-block'}bubble.append(link);
  if(isVideo){
@@ -200,4 +206,5 @@ prompt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.prevent
  if(window.visualViewport)window.visualViewport.addEventListener('resize',fitViewport);
 })();
 </script></body></html>
+
 

@@ -48,6 +48,32 @@ class FreeVideoTests(unittest.TestCase):
         self.assertTrue(result['free'])
         self.assertTrue(all(r.get_header('Authorization') == 'Bearer test-token' for r in requests))
 
+    def test_reference_video_uploads_image_and_uses_image_endpoint(self):
+        import base64
+        reference={'type':'image','name':'demo.png','data':'data:image/png;base64,'+base64.b64encode(b'png test bytes').decode()}
+        requests=[]
+        def provider(req,**kwargs):
+            requests.append(req)
+            if req.full_url.endswith('/config'):
+                return io.BytesIO(json.dumps({'dependencies':[{'id':19,'api_name':'text_to_video'},{'id':20,'api_name':'image_to_video'}]}).encode())
+            if req.full_url.endswith('/upload'):
+                self.assertIn(b'name="files"',req.data)
+                self.assertIn(b'png test bytes',req.data)
+                return io.BytesIO(b'["/tmp/gradio/test/reference.png"]')
+            if req.full_url.endswith('/queue/join'):
+                payload=json.loads(req.data)
+                self.assertEqual(payload['fn_index'],20)
+                self.assertEqual(payload['data'][6],'image-to-video')
+                self.assertEqual(payload['data'][4:6],[512,512])
+                self.assertEqual(payload['data'][2]['meta']['_type'],'gradio.FileData')
+                return io.BytesIO(b'{"event_id":"reference123"}')
+            event={'msg':'process_completed','event_id':'reference123','success':True,'output':{'data':[{'video':{'url':FREE_VIDEO_HOST+'/gradio_api/file=/tmp/reference.mp4'}}]}}
+            return io.BytesIO(('data: '+json.dumps(event)+'\n\n').encode())
+        with patch('urllib.request.urlopen',side_effect=provider):
+            result=generate_video('Animate the same character',reference)
+        self.assertTrue(result['free'])
+        self.assertEqual(len(requests),4)
+
     def test_rejects_untrusted_video_location(self):
         event = {'msg': 'process_completed', 'event_id': 'test123', 'success': True,
                  'output': {'data': [{'video': {'url': 'http://localhost/private'}}]}}
@@ -59,3 +85,4 @@ class FreeVideoTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
