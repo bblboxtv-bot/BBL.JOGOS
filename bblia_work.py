@@ -108,6 +108,7 @@ def execute_work_tool(name, args, artifacts):
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
     return {'version': 'computer-connect-20261104', 'chat_daily_limit': None, 'items': [
+        {'id': 'self', 'name': 'Melhorar a própria BBLIA', 'state': 'configured' if api else 'missing', 'detail': 'Peça alterações na própria BBLIA por texto ou voz. Ela lê o código atual e prepara os arquivos alterados. Publicação depende de conexão de manutenção autenticada pelo proprietário.'},
         {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
         {'id': 'files', 'name': 'APKs, fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Analisa APKs de até 100 MB: pacote, permissões, componentes, recursos e layouts disponíveis. Fotos/PDFs de até 5 MB; até 4 anexos.'},

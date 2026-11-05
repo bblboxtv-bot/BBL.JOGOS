@@ -2,8 +2,15 @@
 let activeWork=null;
 const workSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
+function wantsSelfImprovement(text){
+ const change=/(melhor|alter|corrig|corrij|consert|ajust|atualiz|adicione|adicionar|inclua|incluir|mude|mudar|tire|tirar|remov|implemen|implement|aperfeiço|aperfeico)/i.test(text);
+ const self=/\bbblia\b|voc[êe]\s+(?:mesm[ao]|pr[óo]pri[ao])|(?:sua|seu)\s+(?:pr[óo]pri[ao]\s+)?(?:tela|interface|c[óo]digo|aplicativo|funcionamento|menu|voz|microfone)|em\s+voc[êe]/i.test(text);
+ const question=/^(?:como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim());
+ return change&&self&&!question;
+}
 function wantsAutonomousWork(text,selected=[]){
  if(workspace.preferences.agent===false)return false;
+ if(wantsSelfImprovement(text))return true;
  const verb=/(cria|crie|criar|faça|fazer|faz\b|monte|montar|constru|desenvolv|program|corrij|corrigir|altere|alterar|melhore|mudar|mude|quero|preciso)/i.test(text);
  const target=/\b(painel|pdv|dashboard|site|sistema|loja|app|apk|aplicativo|launcher|código|codigo|projeto|página|pagina|html|programa)\b/i.test(text);
  const visual=selected.some(f=>f.type==='image'||f.apk)&&/(igual|parecido|parecida|baseado|baseada|referência|referencia)/i.test(text);
@@ -110,6 +117,7 @@ async function finishWork(bubble,pending){
   const syntaxErrors=webSyntaxErrors(artifacts);
   if(syntaxErrors.length&&data.status==='completed'){data.status='partial';data.error='Ainda há erros de sintaxe a corrigir: '+syntaxErrors.join('; ')}
   let answer=data.answer||data.error||'O trabalho foi interrompido.';
+  if(data.self_improvement)answer='Melhoria da BBLIA preparada para revisão; ainda não publicada.\n\n'+answer;
   if(data.status!=='completed')answer='Trabalho '+(data.status==='cancelled'?'interrompido':'parcial')+'. '+(data.error||'Os arquivos já criados foram preservados.');
   if(data.limitations?.length)answer+='\n\n'+data.limitations.join('\n');
   if(data.validation&&data.kind!=='computador')answer+='\n\nVerificação automática de estrutura: '+(data.validation.ok?'sem erros detectados.':'há ajustes pendentes.');
@@ -134,6 +142,11 @@ async function finishWork(bubble,pending){
 async function runAutonomousWork(text,selected=[],options={}){
  if(!workspaceReady||send.disabled)return{status:'failed',error:'Aguarde o trabalho atual terminar.'};
  const chat=currentChat();let project=currentProject();
+ const selfImprovement=wantsSelfImprovement(text)||project?.kind==='bblia-self';
+ if(selfImprovement&&project?.kind!=='bblia-self'){
+  project={id:uid(),name:'Melhorias da BBLIA',kind:'bblia-self',instructions:'Melhorias no código da própria BBLIA. Ler os originais, preservar funções e entregar arquivos para revisão antes da publicação.',files:[]};
+  workspace.projects.push(project);chat.projectId=project.id;
+ }
  if(!project){project={id:uid(),name:text.slice(0,80),instructions:text.slice(0,6000),files:[]};workspace.projects.push(project);chat.projectId=project.id}
  chat.workMode=true;chat.files=selected.filter(f=>!(project.files||[]).includes(f));
  const files=projectArtifacts(project.id,chat);
@@ -141,7 +154,7 @@ async function runAutonomousWork(text,selected=[],options={}){
  const label=selected.length?'\n[Referências: '+selected.map(f=>f.name).join(', ')+']':'';
  add('user',text+label);history.push({role:'user',content:text+label});
  const payload={messages:history.slice(-16).map(m=>({role:m.role,content:m.content.slice(0,12000)})),
-  attachments:selected,files,use_computer:!!options.useComputer,preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
+  attachments:selected,files,self_improvement:selfImprovement,use_computer:!!options.useComputer,preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
  while(payload.messages[0]?.role==='assistant')payload.messages.shift();
  send.disabled=true;waitingVoice=true;
  if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();

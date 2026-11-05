@@ -1,3 +1,4 @@
+from bblia_self import list_sources, read_source, validate_changes, SELF_GUIDANCE, CREATIVE_GUIDANCE
 """Background work loop with image inputs, file tools and explicit verification.
 
 Generated and uploaded code is data here: it is never executed on the web server.
@@ -193,9 +194,22 @@ def run_job(job, safe, data, files):
         context = {'project': data.get('project', {}), 'preferences': {k: str(preferences.get(k, ''))[:2000]
                    for k in ('name', 'instructions', 'detail')}}
         instructions = INSTRUCTIONS+'\nContexto informado pelo usuário: '+json.dumps(context, ensure_ascii=False)[:14000]
+        instructions += '\n'+CREATIVE_GUIDANCE
         tools = agent_tools(preferences.get('web', True))
+        self_improvement = data.get('self_improvement') is True
+        originals = {}
+        if self_improvement:
+            instructions += '\n'+SELF_GUIDANCE
+            tools.extend([
+                tool('listar_codigo_bblia', 'Listar os arquivos da versão implantada da própria BBLIA. Somente leitura.', {}, []),
+                tool('ler_codigo_bblia', 'Ler o arquivo original da BBLIA antes de preparar uma melhoria. Somente código público, sem credenciais.', {'nome': {'type': 'string'}}, ['nome']),
+                tool('editar_codigo_bblia', 'Preparar uma alteração exata e pequena no código já lido. Entrega o arquivo completo sem reescrevê-lo na resposta da ferramenta. Não publica.',
+                     {'nome': {'type': 'string'}, 'trecho_atual': {'type': 'string'}, 'trecho_novo': {'type': 'string'}}, ['nome', 'trecho_atual', 'trecho_novo'])])
+            with LOCK:
+                job['self_improvement'] = True
+                job['publication'] = 'not_published'
         computer = None
-        if data.get('use_computer'):
+        if data.get('use_computer') and not self_improvement:
             progress(job, 'Conectando ao computador autorizado pelo Commander')
             try:
                 computer = CommanderClient(data.get('computer_connection')).initialize()
@@ -253,6 +267,25 @@ def run_job(job, safe, data, files):
                         info = computer.call(name[3:], args)
                         with LOCK:
                             job['computer_actions'] = copy.deepcopy(computer.actions)
+                    elif name == 'listar_codigo_bblia' and self_improvement:
+                        progress(job, 'Localizando o código atual da BBLIA')
+                        info = list_sources()
+                    elif name == 'ler_codigo_bblia' and self_improvement:
+                        info = read_source(args.get('nome'))
+                        originals[info['name']] = info
+                        progress(job, 'Analisando a própria BBLIA: '+info['name'])
+                    elif name == 'editar_codigo_bblia' and self_improvement:
+                        filename = args.get('nome')
+                        if filename not in originals:
+                            raise WorkError('Leia o arquivo original com ler_codigo_bblia primeiro.')
+                        old, new = args.get('trecho_atual'), args.get('trecho_novo')
+                        current = files.get(filename, originals[filename]['content'])
+                        if not isinstance(old,str) or not old or not isinstance(new,str) or len(new)>180000:
+                            raise WorkError('Informe os trechos atual e novo para a alteração.')
+                        if current.count(old)!=1:
+                            raise WorkError('O trecho atual deve corresponder exatamente a uma ocorrência. Leia o código e inclua contexto suficiente.')
+                        info = put_file(files,filename,current.replace(old,new,1))
+                        progress(job, 'Preparando melhoria na BBLIA: '+filename)
                     elif name == 'planejar_trabalho':
                         plan = [str(x)[:150] for x in args.get('etapas', [])[:8]]
                         with LOCK:
@@ -260,6 +293,8 @@ def run_job(job, safe, data, files):
                         progress(job, 'Plano definido. Construindo a solução')
                         info = {'status': 'continue', 'plan': plan}
                     elif name == 'criar_arquivo':
+                        if self_improvement and args.get('nome') in list_sources()['files'] and args.get('nome') not in originals:
+                            raise WorkError('Leia o arquivo original com ler_codigo_bblia antes de alterá-lo.')
                         info = put_file(files, args.get('nome'), args.get('conteudo'))
                         progress(job, 'Criando e revisando '+info['name'])
                     elif name == 'ler_arquivo':
@@ -272,7 +307,8 @@ def run_job(job, safe, data, files):
                         info = execute_work_tool(name, args, [])
                     elif name in ('validar_projeto', 'finalizar_trabalho'):
                         progress(job, 'Verificando os arquivos e corrigindo problemas')
-                        report = validate_files(files, args.get('tipo', 'codigo'))
+                        report = (validate_changes(files, originals, validate_files) if self_improvement
+                                  else validate_files(files, args.get('tipo', 'codigo')))
                         if args.get('tipo') == 'computador':
                             report['ok'] = bool(computer and computer.actions and any(a['confirmed'] for a in computer.actions))
                             report['checks'] = ['chamadas ao computador registradas']
@@ -282,6 +318,9 @@ def run_job(job, safe, data, files):
                             job['validation'] = report
                         info = report
                         if name == 'finalizar_trabalho' and report['ok']:
+                            if self_improvement:
+                                args['tipo'] = 'codigo'
+                                args['limitacoes'] = list(args.get('limitacoes', [])) + ['Melhoria preparada em arquivos. A versão em uso ainda não foi alterada; a publicação depende da conexão de manutenção do proprietário.']
                             final = {'answer': str(args.get('resumo', 'Trabalho concluído.'))[:10000],
                                      'kind': args.get('tipo', 'codigo'),
                                      'limitations': [str(x)[:500] for x in args.get('limitacoes', [])[:12]]}
