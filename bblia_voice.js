@@ -157,7 +157,12 @@ function toggleVoice(){
  unlockVoicePlayback();
  if(dictation){dictation.onend=null;dictation.stop();dictation=null;document.getElementById('dictate').classList.remove('listening')}
  clearVoiceTimers();try{recognition?.abort()}catch(e){}recognition=null;
- voiceMode=true;realtimeReconnectAttempt=0;startRealtime();
+ voiceMode=true;realtimeReconnectAttempt=0;setVoiceUI();
+ // Gemini gratuito: use reconhecimento de fala do navegador e respostas por voz locais.
+ // Evita reconexões intermináveis à sessão paga da OpenAI.
+ const auto=document.getElementById('auto');if(auto)auto.checked=true;
+ status.textContent='🎙️ Conversa contínua ativada. Pode falar.';
+ listenVoice();
 }
 
 
