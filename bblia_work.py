@@ -19,14 +19,22 @@ def requests_web_lookup(messages):
 
 def response_sources(responses):
     sources, seen = [], set()
+    def add(value):
+        url = value.get('url','')
+        if isinstance(url,str) and url.startswith(('https://','http://')) and url not in seen:
+            seen.add(url)
+            sources.append({'url':url,'title':value.get('title') or url})
     for result in responses:
         for item in result.get('output', []):
             for part in item.get('content', []):
                 for ann in part.get('annotations', []):
-                    url = ann.get('url','')
-                    if ann.get('type')=='url_citation' and isinstance(url,str) and url.startswith(('https://','http://')) and url not in seen:
-                        seen.add(url)
-                        sources.append({'url':url,'title':ann.get('title') or 'Fonte'})
+                    if ann.get('type')=='url_citation':add(ann.get('url_citation',ann))
+    # Preserve sources actually consulted even if the model omits inline annotations.
+    for result in responses:
+        for item in result.get('output', []):
+            if item.get('type')=='web_search_call':
+                for source in (item.get('action') or {}).get('sources',[]):
+                    if isinstance(source,dict):add(source)
     return sources[:30]
 
 

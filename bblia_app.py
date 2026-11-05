@@ -249,7 +249,7 @@ class Handler(BaseHTTPRequestHandler):
    instructions+=' Contexto do projeto informado pelo usuário: '+json.dumps({k:str(project.get(k,''))[:6000] for k in ('name','instructions')},ensure_ascii=False)
    tools=[ {'type':'function','name':'consultar_tempo','description':'Consultar temperatura e previsao meteorologica atualizada de uma cidade usando Open-Meteo','parameters':{'type':'object','properties':{'cidade':{'type':'string','description':'Nome da cidade, preferencialmente com estado e pais'}} ,'required':['cidade'],'additionalProperties':False}}]
    tools.append({'type':'function','name':'consultar_mega_sena','description':'Consultar resultados oficiais da Mega-Sena da CAIXA, ultimo sorteio ou numero de concurso','parameters':{'type':'object','properties':{'concurso':{'type':['integer','null'],'description':'Numero do concurso ou null para o mais recente'}},'required':['concurso'],'additionalProperties':False}})
-   if preferences.get('web',True):tools.append({'type':'web_search_preview'})
+   if preferences.get('web',True):tools.append({'type':'web_search'})
    tools.extend(work_tools())
    instructions+=' Você pode criar fotos, imagens, logomarcas, ilustrações e banners com criar_imagem. Para pedidos de criação, use a ferramenta, não responda apenas com instruções. Para vídeos, use criar_video. Essas ferramentas encaminham a geração à interface; nunca invente arquivos ou links. O usuário pode anexar fotos para análise ou editá-las pelo botão Editar foto.'
    for name,description in [('criar_imagem','Criar uma nova imagem, foto, logomarca, banner ou ilustração a partir de uma descrição'),('criar_video','Criar um novo vídeo a partir de uma descrição')]:
@@ -260,9 +260,10 @@ class Handler(BaseHTTPRequestHandler):
    needs_fresh=any(term in str(safe[-1]['content']).lower() for term in recent_terms)
    if needs_fresh:instructions+=' Para pessoas publicas, cargos, mandatos, politica e noticias, consulte a web antes de responder; inclua fontes e datas. Lula assumiu mandatos em 2003, 2007 e 2023; nunca afirme que 2013 foi inicio de mandato. Se a busca falhar, diga que nao conseguiu confirmar o estado atual.'
    payload={'model':os.getenv('BBLIA_MODEL','gpt-4.1-mini'),'instructions':instructions,'input':safe,'tools':tools,'max_output_tokens':8000}
+   if preferences.get('web',True):payload['include']=['web_search_call.action.sources']
    force_web=bool(preferences.get('web',True) and requests_web_lookup(safe))
    if force_web:
-    payload['tool_choice']={'type':'web_search_preview'}
+    payload['tool_choice']={'type':'web_search'}
     payload['instructions']+=' Este pedido exige uma pesquisa real na internet. Use a busca e responda com links e citações das fontes consultadas; não apresente memória como pesquisa.'
     instructions=payload['instructions']
    req=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
@@ -287,13 +288,14 @@ class Handler(BaseHTTPRequestHandler):
      except Exception:info={'error':'Fonte oficial indisponivel neste momento. Nao invente resultados.'}
      outputs.append({'type':'function_call_output','call_id':item['call_id'],'output':json.dumps(info,ensure_ascii=False)})
     follow={'model':payload['model'],'instructions':instructions,'previous_response_id':result['id'],'input':outputs,'tools':tools,'max_output_tokens':8000}
+    if preferences.get('web',True):follow['include']=['web_search_call.action.sources']
     req2=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(follow).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
     with urllib.request.urlopen(req2,timeout=120) as r:result=json.load(r)
     response_history.append(result)
    answer='\n'.join(dict.fromkeys(c.get('text','') for item in result.get('output',[]) for c in item.get('content',[]) if c.get('type')=='output_text'))
    sources=response_sources(response_history)
    web_used=any(item.get('type')=='web_search_call' and item.get('status')=='completed' for response in response_history for item in response.get('output',[]))
-   if force_web and not web_used:
+   if force_web and (not web_used or not sources):
     return self.reply(502,{'error':'Não foi possível confirmar a pesquisa na internet. Tente novamente; não vou apresentar uma resposta sem verificar as fontes.'})
    usage=result.get('usage',{})
    self.reply(200,{'answer':answer or ('Arquivos prontos para baixar.' if artifacts else 'Sem resposta textual.'),'artifacts':artifacts,'sources':sources,'web_used':web_used,'usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})

@@ -37,11 +37,17 @@ class WebTests(unittest.TestCase):
         second={'id':'second','output':[{'type':'message','content':[{'type':'output_text','text':'Fonte consultada.','annotations':[]},{'type':'output_text','text':'Fonte consultada.','annotations':[]}]}]}
         status,data,captured=self.run_request([first,second])
         self.assertEqual(status,200)
-        self.assertEqual(captured[0]['tool_choice'],{'type':'web_search_preview'})
+        self.assertEqual(captured[0]['tool_choice'],{'type':'web_search'})
         self.assertNotIn('tool_choice',captured[1])
         self.assertTrue(data['web_used'])
         self.assertEqual(len(data['sources']),1)
         self.assertEqual(data['answer'],'Fonte consultada.')
+    def test_consulted_sources_are_retained_without_annotations(self):
+        response={'id':'x','output':[{'type':'web_search_call','status':'completed','action':{'sources':[{'type':'url','url':'https://developer.android.com/guide'}]}},{'type':'message','content':[{'type':'output_text','text':'Fonte consultada.'}]}]}
+        status,data,captured=self.run_request([response])
+        self.assertEqual(status,200)
+        self.assertEqual(data['sources'][0]['url'],'https://developer.android.com/guide')
+        self.assertEqual(captured[0]['include'],['web_search_call.action.sources'])
     def test_no_search_cannot_claim_verified_response(self):
         response={'id':'x','output':[{'type':'message','content':[{'type':'output_text','text':'Não fiz busca.'}]}]}
         status,data,captured=self.run_request([response])
@@ -52,7 +58,7 @@ class WebTests(unittest.TestCase):
         status,data,captured=self.run_request([response],False)
         self.assertEqual(status,200)
         self.assertNotIn('tool_choice',captured[0])
-        self.assertFalse(any(t['type']=='web_search_preview' for t in captured[0]['tools']))
+        self.assertFalse(any(t['type']=='web_search' for t in captured[0]['tools']))
     def test_source_links_are_deduplicated_and_have_web_schemes(self):
         rows=[{'output':[{'content':[{'annotations':[{'type':'url_citation','url':u,'title':'Fonte'} for u in ('https://example.com','https://example.com','javascript:alert(1)')]}]}]}]
         self.assertEqual(len(response_sources(rows)),1)
