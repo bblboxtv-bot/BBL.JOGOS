@@ -18,8 +18,9 @@ function downloadZip(name,files){
  const end=new Uint8Array(22);const e=new DataView(end.buffer);e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,central.reduce((n,b)=>n+b.length,0),true);e.setUint32(16,offset,true);const url=URL.createObjectURL(new Blob([...local,...central,end],{type:'application/zip'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 async function persist(){
+ if(typeof cloudTrack==='function')cloudTrack();
  if(!db)return;
- await new Promise((resolve,reject)=>{const tx=db.transaction('work','readwrite');tx.objectStore('work').put(structuredClone(workspace),'state');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)}).catch(()=>notify('Não foi possível salvar no aparelho. Exporte um backup antes de sair.'));
+ await new Promise((resolve,reject)=>{const tx=db.transaction('work','readwrite');tx.objectStore('work').put(structuredClone(workspace),cloudUser?'account:'+cloudUser.id:'state');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)}).catch(()=>notify('Não foi possível salvar no aparelho. Exporte um backup antes de sair.'));
 }
 function modalContent(title,description){closeDrawer();const modal=document.getElementById('modal');const el=document.getElementById('modalContent');el.replaceChildren();const h=document.createElement('h2');h.textContent=title;el.append(h);if(description){const p=document.createElement('p');p.className='muted';p.textContent=description;el.append(p)}if(!modal.open)modal.showModal();return el}
 function button(parent,label,fn){const b=document.createElement('button');b.className='choice';b.textContent=label;b.onclick=fn;parent.append(b);return b}
@@ -41,14 +42,14 @@ function renderChat(){
 }
 newChat=function(projectId=null){if(busy())return;saveChat();const c={id:uid(),projectId,title:'Nova conversa',messages:[],created:Date.now(),updated:Date.now()};workspace.chats.unshift(c);workspace.active=c.id;persist();renderChat();document.getElementById('modal').close()};
 function switchChat(id){if(busy())return;saveChat();workspace.active=id;persist();renderChat();document.getElementById('modal').close()}
-function showHistory(){const el=modalContent('Conversas salvas','Salvas neste navegador. Exporte um backup para guardar ou transferir para outro aparelho.');const search=field(el,'Buscar conversa','');const list=document.createElement('div');el.append(list);const draw=()=>{list.replaceChildren();workspace.chats.filter(c=>(c.title+' '+c.messages.map(m=>m.content).join(' ')+' '+(workspace.projects.find(p=>p.id===c.projectId)?.name||'')).toLowerCase().includes(search.value.toLowerCase())).sort((a,b)=>b.updated-a.updated).forEach(c=>button(list,(c.id===workspace.active?'✓ ':'')+c.title,()=>switchChat(c.id)))};search.oninput=draw;draw();button(el,'Nova conversa',()=>newChat());button(el,'Baixar conversa atual (.md)',()=>downloadText('BBLIA-conversa.md',history.map(m=>'## '+(m.role==='user'?'Você':'BBLIA')+'\n\n'+m.content).join('\n\n')))}
+function showHistory(){const el=modalContent('Conversas salvas',cloudUser?'Conversas desta conta. A sincronização precisa estar concluída para aparecerem em outro aparelho.':'Salvas neste navegador. Entre na sua conta para sincronizar entre aparelhos.');const search=field(el,'Buscar conversa','');const list=document.createElement('div');el.append(list);const draw=()=>{list.replaceChildren();workspace.chats.filter(c=>(c.title+' '+c.messages.map(m=>m.content).join(' ')+' '+(workspace.projects.find(p=>p.id===c.projectId)?.name||'')).toLowerCase().includes(search.value.toLowerCase())).sort((a,b)=>b.updated-a.updated).forEach(c=>button(list,(c.id===workspace.active?'✓ ':'')+c.title,()=>switchChat(c.id)))};search.oninput=draw;draw();button(el,'Nova conversa',()=>newChat());button(el,'Baixar conversa atual (.md)',()=>downloadText('BBLIA-conversa.md',history.map(m=>'## '+(m.role==='user'?'Você':'BBLIA')+'\n\n'+m.content).join('\n\n')))}
 function editProject(project=null){const el=modalContent(project?'Editar projeto':'Novo projeto','Reúna conversas e arquivos sobre um trabalho, por exemplo: BBL Launcher.');const name=field(el,'Nome',project?.name||'');name.maxLength=100;const instructions=field(el,'Objetivo, requisitos e decisões do projeto',project?.instructions||'',true);instructions.maxLength=6000;button(el,'Salvar projeto',()=>{if(!name.value.trim())return name.focus();const p=project||{id:uid(),files:[]};p.name=name.value.trim();p.instructions=instructions.value;if(!project)workspace.projects.push(p);persist();showProject(p.id)})}
 function showProjects(){const el=modalContent('Projetos','Organize aplicativos, launchers e outros trabalhos com contexto próprio.');button(el,'＋ Criar projeto',()=>editProject());workspace.projects.forEach(p=>button(el,p.name,()=>showProject(p.id)))}
 function showProject(id){const p=workspace.projects.find(p=>p.id===id);if(!p)return;const el=modalContent(p.name,p.instructions||'Adicione os requisitos deste trabalho.');button(el,'＋ Nova conversa neste projeto',()=>newChat(id));button(el,'Editar objetivo e requisitos',()=>editProject(p));button(el,'Baixar código do projeto (.zip)',()=>{const files=new Map();(p.files||[]).filter(f=>f.type==='text').forEach(f=>files.set(f.name,f.data));workspace.chats.filter(c=>c.projectId===id).sort((a,b)=>a.updated-b.updated).forEach(c=>c.messages.forEach(m=>(m.artifacts||[]).forEach(f=>files.set(f.name,f.content))));files.set('BBLIA-PROJETO.md','# '+p.name+'\n\n'+p.instructions);downloadZip('BBLIA-projeto.zip',Array.from(files,([name,content])=>({name,content}))) });button(el,'Adicionar arquivos ao projeto',()=>chooseFiles(async files=>{if((p.files||[]).length+files.length>4)return notify('Até quatro arquivos por projeto.');p.files=(p.files||[]).concat(files);await persist();showProject(id)}));(p.files||[]).forEach((f,i)=>button(el,'Remover arquivo: '+f.name,()=>{p.files.splice(i,1);persist();showProject(id)}));workspace.chats.filter(c=>c.projectId===id).forEach(c=>button(el,c.title,()=>switchChat(c.id)))}
-function showSettings(){const prefs=workspace.preferences;const el=modalContent('Configurações','Uso pessoal: sem limite diário de mensagens definido pela BBLIA.');const name=field(el,'Como devo chamar você?',prefs.name);button(el,'Memória pessoal',()=>showMemories());button(el,'Gerenciar conversa atual',()=>manageConversation());const instructions=field(el,'Preferências e instruções pessoais',prefs.instructions,true);instructions.maxLength=2000;const detail=field(el,'Estilo da resposta',prefs.detail);const web=document.createElement('input');web.type='checkbox';web.checked=prefs.web!==false;const label=document.createElement('label');label.textContent=' Permitir pesquisa na internet';label.prepend(web);el.append(label);button(el,'Salvar configurações',async()=>{workspace.preferences={...prefs,name:name.value.slice(0,100),instructions:instructions.value,detail:detail.value.slice(0,100),web:web.checked};await persist();notify('Configurações salvas');document.getElementById('modal').close()});button(el,'Exportar backup de projetos e conversas',()=>{saveChat();downloadText('BBLIA-backup.json',JSON.stringify(workspace,null,2),'application/json')});button(el,'Importar backup',()=>{const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=async()=>{try{const f=input.files[0];if(!f||f.size>30000000)throw Error('Backup muito grande.');const value=JSON.parse(await f.text());validateBackup(value);saveChat();for(const p of value.projects){const old=p.id;p.id=uid();value.chats.filter(c=>c.projectId===old).forEach(c=>c.projectId=p.id)}value.chats.forEach(c=>c.id=uid());workspace.projects.push(...value.projects);workspace.chats.push(...value.chats);await persist();showHistory()}catch(e){notify('Não foi possível importar: '+e.message)}};input.click()})}
+function showSettings(){const prefs=workspace.preferences;const el=modalContent('Configurações','Uso pessoal: sem limite diário de mensagens definido pela BBLIA.');button(el,'Minha conta e sincronização',()=>showAccount());const name=field(el,'Como devo chamar você?',prefs.name);button(el,'Memória pessoal',()=>showMemories());button(el,'Gerenciar conversa atual',()=>manageConversation());const instructions=field(el,'Preferências e instruções pessoais',prefs.instructions,true);instructions.maxLength=2000;const detail=field(el,'Estilo da resposta',prefs.detail);const web=document.createElement('input');web.type='checkbox';web.checked=prefs.web!==false;const label=document.createElement('label');label.textContent=' Permitir pesquisa na internet';label.prepend(web);el.append(label);button(el,'Salvar configurações',async()=>{workspace.preferences={...prefs,name:name.value.slice(0,100),instructions:instructions.value,detail:detail.value.slice(0,100),web:web.checked};await persist();notify('Configurações salvas');document.getElementById('modal').close()});button(el,'Exportar backup de projetos e conversas',()=>{saveChat();downloadText('BBLIA-backup.json',JSON.stringify(workspace,null,2),'application/json')});button(el,'Importar backup',()=>{const input=document.createElement('input');input.type='file';input.accept='.json';input.onchange=async()=>{try{const f=input.files[0];if(!f||f.size>30000000)throw Error('Backup muito grande.');const value=JSON.parse(await f.text());validateBackup(value);saveChat();for(const p of value.projects){const old=p.id;p.id=uid();value.chats.filter(c=>c.projectId===old).forEach(c=>c.projectId=p.id)}value.chats.forEach(c=>c.id=uid());workspace.projects.push(...value.projects);workspace.chats.push(...value.chats);await persist();showHistory()}catch(e){notify('Não foi possível importar: '+e.message)}};input.click()})}
 function validateBackup(v){if(v?.version!==1||!Array.isArray(v.projects)||!Array.isArray(v.chats)||v.projects.length>200||v.chats.length>2000)throw Error('Formato inválido.');for(const p of v.projects){if(typeof p.id!=='string'||typeof p.name!=='string'||typeof p.instructions!=='string'||!Array.isArray(p.files)||p.files.length>4)throw Error('Projeto inválido.');p.files.forEach(validateAttachment)}for(const c of v.chats){if(typeof c.id!=='string'||typeof c.title!=='string'||!Array.isArray(c.messages)||c.messages.some(m=>!['user','assistant'].includes(m.role)||typeof m.content!=='string'||(m.artifacts&&!Array.isArray(m.artifacts))||(m.sources&&!Array.isArray(m.sources))))throw Error('Conversa inválida.')}}
 function validateAttachment(f){if(!f||typeof f.name!=='string'||typeof f.data!=='string'||!['text','pdf','image'].includes(f.type)||f.data.length>7000000)throw Error('Anexo inválido.')}
-async function showIntegrations(){const el=modalContent('Ferramentas e conexões','O estado indica configuração, não um teste de funcionamento do serviço externo.');try{const r=await fetch('/api/integrations');if(!r.ok)throw Error();const data=await r.json();for(const item of data.items){const card=document.createElement('section');card.className='integration';const h=document.createElement('strong');h.textContent=item.name+' · '+({configured:'Configurado',external:'Serviço externo',missing:'Não conectado',connected:'Conectado',ready:'Aguardando autorização'}[item.state]||item.state);const p=document.createElement('p');p.className='muted';p.textContent=item.detail;card.append(h,p);if(item.id==='accounts')button(card,'Conectar e gerenciar Google',()=>showGoogleConnections());el.append(card)}}catch(e){el.append(document.createTextNode('Não consegui consultar o servidor agora.'))}}
+async function showIntegrations(){const el=modalContent('Ferramentas e conexões','O estado indica configuração, não um teste de funcionamento do serviço externo.');try{const r=await fetch('/api/integrations');if(!r.ok)throw Error();const data=await r.json();for(const item of data.items){const card=document.createElement('section');card.className='integration';const h=document.createElement('strong');h.textContent=item.name+' · '+({configured:'Configurado',external:'Serviço externo',missing:'Não conectado',connected:'Conectado',ready:'Aguardando autorização'}[item.state]||item.state);const p=document.createElement('p');p.className='muted';p.textContent=item.detail;card.append(h,p);if(item.id==='sync')button(card,'Minha conta e sincronização',()=>showAccount());if(item.id==='accounts')button(card,'Conectar e gerenciar Google',()=>showGoogleConnections());el.append(card)}}catch(e){el.append(document.createTextNode('Não consegui consultar o servidor agora.'))}}
 function chooseFiles(done){const picker=document.createElement('input');picker.type='file';picker.multiple=true;picker.accept='*/*';picker.onchange=async()=>{try{const files=Array.from(picker.files);if(files.length>4)throw Error('Escolha até quatro arquivos.');const result=[];for(const file of files){const ext=file.name.split('.').pop().toLowerCase();if(!['apk','png','jpg','jpeg','webp','pdf','txt','md','json','csv','xml','html','css','js','ts','tsx','jsx','py','java','kt','kts','gradle','yaml','yml','sh','properties'].includes(ext))throw Error('Formato não suportado. Escolha um APK, foto, PDF ou arquivo de texto/código.');if(ext==='apk'){if(file.size>100*1024*1024)throw Error('Máximo de 100 MB por APK.');notify('Enviando e analisando '+file.name+'...');const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),180000);try{const response=await fetch('/api/apk/analyze',{method:'POST',headers:{'Content-Type':'application/vnd.android.package-archive','X-Filename':encodeURIComponent(file.name)},body:file,signal:controller.signal});const payload=await response.json();if(!response.ok)throw Error(payload.error||'Não foi possível analisar o APK.');validateAttachment(payload.attachment);result.push(payload.attachment);notify('APK analisado: '+(payload.attachment.apk?.package||file.name));}catch(error){throw Error(error.name==='AbortError'?'O envio do APK demorou demais. Tente novamente.':error.message)}finally{clearTimeout(timer)}continue;}if(file.size>5*1024*1024)throw Error('Máximo de 5 MB por foto/PDF ou texto.');let type,data;if(['png','jpg','jpeg','webp','pdf'].includes(ext)){type=ext==='pdf'?'pdf':'image';data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)});const mime=ext==='pdf'?'application/pdf':ext==='jpg'||ext==='jpeg'?'image/jpeg':'image/'+ext;data='data:'+mime+';base64,'+data.split(',')[1]}else{type='text';data=await file.text();if(data.length>120000||data.includes('\u0000'))throw Error('Envie código/texto UTF-8 de até 120 mil caracteres.')}result.push({name:file.name,type,data})}await done(result)}catch(e){notify(e.message)}};picker.click()}
 function renderAttachments(){const bar=document.getElementById('attachmentBar');bar.replaceChildren();attachments.forEach((f,i)=>button(bar,'✕ '+(f.apk?'APK analisado: '+f.apk.name:f.name),()=>{attachments.splice(i,1);renderAttachments()}));if(attachments.some(f=>f.type==='image'))button(bar,'🎬 Animar imagem em vídeo',async()=>{if(send.disabled)return;const reference=attachments.find(f=>f.type==='image');const movement=prompt.value.trim()||'The same character from the reference image moves and dances naturally. Preserve the face, clothes, art style and background. Smooth motion, static camera.';prompt.value='';attachments=[];renderAttachments();await submitMedia('video',movement,reference)});if(attachments.some(f=>f.type==='image'))button(bar,'🎨 Editar foto com meu pedido',async()=>{const text=prompt.value.trim();if(text.length<5)return notify('Descreva a alteração no campo de mensagem.');if(send.disabled)return;const reference=attachments.find(f=>f.type==='image');prompt.value='';attachments=[];renderAttachments();await generateMedia('image',text,null,reference)})}
 sendMessage=async function(){
@@ -66,6 +67,8 @@ async function initWorkbench(){
  workspaceReady=true;if(!currentChat()){workspace.active=uid();workspace.chats.unshift({id:workspace.active,title:'Nova conversa',projectId:null,messages:history.slice(),created:Date.now(),updated:Date.now()})}renderChat();resumeMedia();notify('Uso pessoal · sem limite diário de mensagens');
  const online=document.getElementById('online');online.textContent='Verificando';fetch('/health').then(r=>{online.textContent=r.ok?'Servidor online':'Falha no servidor'}).catch(()=>online.textContent='Sem conexão');
  document.getElementById('auto').checked=workspace.preferences.auto!==false;document.getElementById('auto').addEventListener('change',e=>{workspace.preferences.auto=e.target.checked;persist()});
+ const accountButton=document.createElement('button');accountButton.className='navbtn';accountButton.textContent='👤 Minha conta e sincronização';accountButton.onclick=()=>showAccount();nav.prepend(accountButton);
+ workspaceReady=false;try{await cloudInit()}finally{workspaceReady=true}
 }
 
 
@@ -108,10 +111,10 @@ async function showGoogleConnections(){
  try{
   const s=await googleCall('status');const info=document.createElement('p');info.textContent=s.connected?'Conta conectada neste navegador.':s.detail;el.append(info);
   const note=document.createElement('p');note.textContent=s.session_note;el.append(note);
-  const choices=[];for(const [key,name] of [['email','Gmail'],['calendar','Agenda Google'],['drive','Google Drive']]){
+  const choices=[];for(const [key,name] of [['email','Gmail'],['calendar','Agenda Google'],['drive','Google Drive'],['login','Login da BBLIA'],['sync','Histórico e projetos na nuvem']]){
    const label=document.createElement('label');label.style.display='block';const input=document.createElement('input');input.type='checkbox';input.checked=s.services.includes(key);label.append(input,document.createTextNode(' '+name));el.append(label);choices.push([key,input]);
   }
-  const detail=document.createElement('p');detail.textContent='As permissões permitem consultar e-mails, eventos e arquivos. O conteúdo consultado no chat é enviado ao serviço de IA para responder ao seu pedido.';el.append(detail);
+  const detail=document.createElement('p');detail.textContent='Cada serviço tem sua permissão: consultar e-mails, eventos e arquivos; login e sincronização gravam seus dados na área privada da BBLIA no Drive. O conteúdo consultado no chat é enviado ao serviço de IA para responder ao seu pedido.';el.append(detail);
   if(s.configured)button(el,s.connected?'Alterar serviços ou trocar conta':'Conectar com Google',async()=>{
    try{const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);if(!selected.length)return notify('Escolha pelo menos um serviço.');const result=await googleCall('start',{services:selected});location.assign(result.url)}catch(e){notify(e.message)}
   });
@@ -121,12 +124,114 @@ async function showGoogleConnections(){
     if(!s.services.includes(service))continue;
     button(el,label,async()=>{try{notify('Consultando Google...');const result=await googleCall('query',{tool,args:{consulta:''}});const out=document.createElement('pre');out.style.whiteSpace='pre-wrap';out.style.overflowWrap='anywhere';out.textContent=JSON.stringify(result,null,2);el.append(out);notify('Consulta concluída')}catch(e){notify(e.message)}});
    }
-   button(el,'Desconectar conta Google',async()=>{try{const result=await googleCall('disconnect',{});await showGoogleConnections();notify(result.revoked?'Conta desconectada e autorização revogada.':'Conta desconectada da BBLIA. Revise também as permissões na sua conta Google.')}catch(e){notify(e.message)}});
+   button(el,'Desconectar conta Google',async()=>{try{const result=await googleCall('disconnect',{});await cloudLeave();await showGoogleConnections();notify(result.revoked?'Conta desconectada e autorização revogada.':'Conta desconectada da BBLIA. Revise também as permissões na sua conta Google.')}catch(e){notify(e.message)}});
   }
  }catch(e){el.append(document.createTextNode(e.message))}
 }
 if(typeof location!=='undefined' && new URLSearchParams(location.search).get('google')==='connected'){
  window.history.replaceState(null,'',location.pathname);setTimeout(()=>showGoogleConnections(),800);
+}
+
+
+
+// Account workspaces are isolated in IndexedDB. Google tokens remain in HttpOnly server sessions.
+let cloudUser=null,cloudReady=false,cloudIgnore=false,cloudRunning=false,cloudTimer=null;
+let cloudGeneration=0,cloudSavedGeneration=0,cloudLast='',cloudError='',cloudDevice='';
+let cloudKnown={chats:new Map(),projects:new Map(),preferences:''};
+function cloudFingerprint(item){const {updated,...rest}=item;return JSON.stringify(rest)}
+function cloudRemember(){cloudKnown={chats:new Map(workspace.chats.map(x=>[x.id,cloudFingerprint(x)])),projects:new Map(workspace.projects.map(x=>[x.id,cloudFingerprint(x)])),preferences:JSON.stringify(workspace.preferences)}}
+function cloudTrack(){
+ if(!cloudUser||!cloudReady||cloudIgnore)return;
+ let changed=false;workspace.deleted=workspace.deleted||{};
+ for(const kind of ['chats','projects']){
+  const next=new Map();for(const item of workspace[kind]){const fingerprint=cloudFingerprint(item);if(cloudKnown[kind].get(item.id)!==fingerprint){item.updated=Date.now();changed=true}next.set(item.id,fingerprint)}
+  for(const id of cloudKnown[kind].keys())if(!next.has(id)){workspace.deleted[kind+':'+id]=Date.now();changed=true}
+  cloudKnown[kind]=next;
+ }
+ const prefs=JSON.stringify(workspace.preferences);if(prefs!==cloudKnown.preferences){workspace.preferencesUpdated=Date.now();cloudKnown.preferences=prefs;changed=true}
+ if(changed){cloudGeneration++;clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>cloudSync(false),1800);cloudBadge('Alterações salvas no aparelho; sincronização pendente')}
+}
+function cloudBadge(message){const el=document.getElementById('accountState');if(el)el.textContent=message}
+async function accountRequest(path,data){
+ const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),120000);
+ try{const r=await fetch(path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json'}:{},body:data?JSON.stringify(data):undefined,signal:controller.signal});const value=await r.json();if(!r.ok)throw Error(value.error||'Falha na sincronização.');return value}finally{clearTimeout(timer)}
+}
+async function cloudRead(key){if(!db)return null;return new Promise((resolve,reject)=>{const req=db.transaction('work').objectStore('work').get(key);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+async function cloudWrite(key,value){if(!db)throw Error('Armazenamento local indisponível.');return new Promise((resolve,reject)=>{const tx=db.transaction('work','readwrite');tx.objectStore('work').put(structuredClone(value),key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)})}
+function cloudEmpty(){return {version:1,projects:[],chats:[],active:null,preferences:{name:'',instructions:'',detail:'Detalhada',web:true,auto:true},deleted:{},preferencesUpdated:0}}
+function cloudRender(){
+ const draft=prompt.value,selected=attachments.slice();renderChat();prompt.value=draft;attachments=selected;renderAttachments();document.getElementById('auto').checked=workspace.preferences.auto!==false;
+}
+async function cloudInit(){
+ const badge=document.createElement('div');badge.id='accountState';badge.className='muted';badge.style.cssText='font-size:12px;padding:4px 12px;overflow-wrap:anywhere';document.getElementById('workTitle').after(badge);
+ cloudBadge('Neste aparelho · entre na sua conta para sincronizar');
+ try{
+  const state=await accountRequest('/api/account');
+  if(!state.user||!state.services.includes('sync'))return;
+  if(!db){cloudBadge('Conta reconhecida; navegador sem armazenamento local. Sincronização não iniciada.');return}
+  await saveChat(); // Preserve the previous guest workspace before changing account keys.
+  cloudDevice=await cloudRead('sync-device');if(!cloudDevice){cloudDevice=uid();await cloudWrite('sync-device',cloudDevice)}
+  const cached=await cloudRead('account:'+state.user.id);
+  if(cached)validateBackup(cached);
+  cloudUser=state.user;workspace=cached||cloudEmpty();cloudReady=true;cloudRemember();
+  if(!currentChat()){cloudIgnore=true;history=[];newChat();cloudIgnore=false;cloudRemember()}
+  cloudRender();await cloudSync(false);
+ }catch(e){cloudError=e.message;cloudBadge('Sincronização indisponível: '+e.message)}
+}
+async function cloudSync(manual=false){
+ if(!cloudUser||!cloudReady)return;
+ if(cloudRunning){if(manual)notify('A sincronização já está em andamento.');return}
+ if(send.disabled||voiceMode){clearTimeout(cloudTimer);cloudTimer=setTimeout(()=>cloudSync(false),4000);if(manual)notify('A sincronização continuará após a resposta ou conversa por voz.');return}
+ cloudTrack();clearTimeout(cloudTimer);cloudRunning=true;const generation=cloudGeneration;const account=cloudUser.id;
+ cloudBadge('Sincronizando '+cloudUser.email+'…');
+ try{
+  const value=await accountRequest('/api/sync',{account,device:cloudDevice,workspace:structuredClone(workspace)});
+  if(!cloudUser||cloudUser.id!==account||value.user?.id!==account)throw Error('A conta mudou. Atualize a página.');
+  validateBackup(value.workspace);
+  if(generation!==cloudGeneration||send.disabled||voiceMode){cloudTimer=setTimeout(()=>cloudSync(false),2000);return}
+  const active=workspace.active;workspace={...value.workspace,active};
+  if(!currentChat())workspace.active=workspace.chats[0]?.id||null;
+  cloudIgnore=true;
+  if(!currentChat()){history=[];newChat()}
+  await persist();cloudRemember();cloudIgnore=false;
+  cloudSavedGeneration=generation;cloudLast=new Date(value.saved_at).toLocaleTimeString('pt-BR');cloudError='';
+  cloudRender();cloudBadge(cloudUser.email+' · sincronizado às '+cloudLast);
+  if(manual)notify('Conversas e projetos sincronizados.');
+ }catch(e){cloudIgnore=false;cloudError=e.name==='AbortError'?'Tempo de sincronização esgotado.':e.message;cloudBadge('Dados locais preservados · '+cloudError);if(manual)notify(cloudError)}
+ finally{cloudRunning=false}
+}
+async function showAccount(){
+ const el=modalContent('Minha conta e sincronização','Entre com a mesma conta Google em cada aparelho para continuar seus projetos.');
+ if(!cloudUser){
+  const p=document.createElement('p');p.textContent='Você está usando o histórico deste navegador. Ao entrar, a BBLIA abrirá um espaço separado para sua conta.';el.append(p);
+  button(el,'Entrar com Google e ativar sincronização',async()=>{try{if(send.disabled||voiceMode)return notify('Finalize a resposta ou a conversa por voz antes de entrar.');if(!db)throw Error('Este navegador não permite salvar os dados locais. Abra no Chrome ou Safari.');await saveChat();const result=await accountRequest('/api/account/start',{});location.assign(result.url)}catch(e){notify(e.message)}});
+ }else{
+  const p=document.createElement('p');p.textContent='Conta: '+cloudUser.email+' · '+(cloudLast?'Última sincronização: '+cloudLast:'Ainda sem sincronização confirmada');el.append(p);
+  if(cloudError){const error=document.createElement('p');error.textContent=cloudError;el.append(error)}
+  button(el,'Sincronizar agora',()=>cloudSync(true));
+  button(el,'Importar conversas anteriores deste navegador',async()=>{
+   try{const guest=await cloudRead('state');if(!guest)return notify('Não há histórico anterior para importar.');validateBackup(guest);
+    const existingChats=new Set(workspace.chats.map(x=>x.id)),existingProjects=new Set(workspace.projects.map(x=>x.id));
+    const candidate=structuredClone(workspace);candidate.chats.push(...structuredClone(guest.chats.filter(x=>!existingChats.has(x.id))));candidate.projects.push(...structuredClone(guest.projects.filter(x=>!existingProjects.has(x.id))));
+    validateBackup(candidate);workspace=candidate;await persist();await cloudSync(true);showAccount();
+   }catch(e){notify('Importação não concluída: '+e.message)}
+  });
+  button(el,'Sair da conta neste aparelho',async()=>{if(send.disabled||voiceMode)return notify('Finalize a resposta ou a conversa por voz antes de sair.');try{await saveChat();if(cloudGeneration!==cloudSavedGeneration){await cloudSync(true);if(cloudGeneration!==cloudSavedGeneration)return notify('Existem alterações pendentes. Exporte um backup ou conclua a sincronização antes de sair.')}await accountRequest('/api/account/logout',{});await cloudLeave();showAccount()}catch(e){notify(e.message)}});
+ }
+ const note=document.createElement('p');note.textContent='Conversas, arquivos anexados aos projetos e preferências ficam no espaço privado da BBLIA no seu Google Drive. Login expira em até 12 horas e pode precisar ser refeito após reinício do servidor. Sair não apaga seus dados salvos. Não compartilhe o mesmo perfil de navegador com outras pessoas.';el.append(note);
+ button(el,'Exportar backup deste espaço',()=>downloadText('BBLIA-backup.json',JSON.stringify(workspace,null,2),'application/json'));
+}
+async function cloudLeave(){
+ clearTimeout(cloudTimer);cloudReady=false;cloudUser=null;cloudGeneration=0;cloudSavedGeneration=0;cloudLast='';cloudError='';
+ workspace=await cloudRead('state')||cloudEmpty();history=[];
+ if(!currentChat()){cloudIgnore=true;newChat();cloudIgnore=false}
+ cloudRender();cloudBadge('Neste aparelho · entre na sua conta para sincronizar');
+}
+if(typeof window!=='undefined'){
+ window.addEventListener('online',()=>cloudSync(false));
+ window.addEventListener('focus',()=>{if(cloudUser)cloudSync(false)});
+ window.addEventListener('pagehide',()=>{if(cloudUser&&cloudGeneration!==cloudSavedGeneration)cloudBadge('Há alterações pendentes; mantenha a BBLIA aberta para sincronizar')});
+ setInterval(()=>{if(cloudUser&&document.visibilityState==='visible')cloudSync(false)},60000);
 }
 
 initWorkbench();

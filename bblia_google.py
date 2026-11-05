@@ -9,7 +9,8 @@ from urllib.error import HTTPError
 
 SCOPES = {'email': 'https://www.googleapis.com/auth/gmail.readonly',
           'calendar': 'https://www.googleapis.com/auth/calendar.readonly',
-          'drive': 'https://www.googleapis.com/auth/drive.readonly'}
+          'drive': 'https://www.googleapis.com/auth/drive.readonly',
+          'login': 'openid', 'sync': 'https://www.googleapis.com/auth/drive.appdata'}
 SESSIONS = {}
 LOCK = threading.RLock()
 TTL = 12 * 3600
@@ -38,7 +39,7 @@ def cookie_value(sid, age=TTL):
 def status(cookie):
     client,secret,redirect=config(); s=session(cookie)
     configured=bool(client and secret and redirect.startswith('https://'))
-    return {'configured': configured, 'connected': bool(s and s.get('token')),
+    return {'configured': configured, 'connected': bool(s and s.get('token')), 'user': s.get('user') if s else None,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
@@ -54,7 +55,7 @@ def start(cookie, services):
     if not status(cookie)['configured']:
         raise GoogleError('O cadastro Google da BBLIA ainda precisa ser configurado no servidor.',503)
     if not isinstance(services,list) or not services or any(k not in SCOPES for k in services):
-        raise GoogleError('Escolha e-mail, agenda ou Drive.')
+        raise GoogleError('Escolha os serviços que deseja conectar.')
     sid=secrets.token_urlsafe(32); state=secrets.token_urlsafe(32); verifier=secrets.token_urlsafe(48)
     challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     with LOCK:
@@ -63,6 +64,7 @@ def start(cookie, services):
         if len(SESSIONS)>=1000:raise GoogleError('Conexões ocupadas. Tente novamente em instantes.',429)
         SESSIONS[sid]={'expires':time.time()+600,'state':state,'verifier':verifier,
                        'requested':[SCOPES[k] for k in dict.fromkeys(services)]}
+    if 'login' in services:SESSIONS[sid]['requested']+=['email','profile']
     params={'client_id':client,'redirect_uri':redirect,'response_type':'code','scope':' '.join(SESSIONS[sid]['requested']),
             'state':state,'code_challenge':challenge,'code_challenge_method':'S256',
             'access_type':'offline','prompt':'consent select_account'}
@@ -101,6 +103,12 @@ def callback(cookie, query):
     result=token_request({'code':code,'grant_type':'authorization_code','redirect_uri':config()[2],'code_verifier':s.pop('verifier')})
     if not result.get('access_token'):raise GoogleError('Google não retornou a autorização.',502)
     granted=result.get('scope','').split()
+    if 'openid' in granted:
+        profile=request_json('https://openidconnect.googleapis.com/v1/userinfo',headers={'Authorization':'Bearer '+result['access_token']})
+        if not isinstance(profile.get('sub'),str) or not profile['sub'] or profile.get('email_verified') is not True:
+            raise GoogleError('O Google não confirmou a identidade da conta.',403)
+        s['user']={'id':profile['sub'],'email':str(profile.get('email',''))[:250],'name':str(profile.get('name',''))[:150]}
+
     if not any(v in granted for v in SCOPES.values()):raise GoogleError('Nenhum dos serviços solicitados foi autorizado.',403)
     s.update(token=result['access_token'],refresh=result.get('refresh_token',''),scopes=granted,
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
@@ -178,12 +186,12 @@ def execute(cookie, name, args):
         return {'nome':meta['name'],'texto':raw[:100000].decode('utf-8',errors='replace'),'truncado':len(raw)>100000}
     raise GoogleError('Ferramenta Google desconhecida.')
 
-def disconnect(cookie):
+def disconnect(cookie, revoke=True):
     c=SimpleCookie();c.load(cookie or '');m=c.get('__Host-bblia_google')
     with LOCK:s=SESSIONS.pop(m.value,None) if m else None
     # Local session is always removed, even if Google is unavailable.
     revoked=False
-    if s and s.get('token'):
+    if revoke and s and s.get('token'):
         try:
             with urlopen(Request('https://oauth2.googleapis.com/revoke',data=urlencode({'token':s.get('refresh') or s['token']}).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'}),timeout=10):revoked=True
         except Exception:pass

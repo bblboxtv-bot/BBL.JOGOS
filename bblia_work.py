@@ -140,7 +140,7 @@ def execute_work_tool(name, args, artifacts):
 def integration_status():
     api = bool(os.getenv('OPENAI_API_KEY'))
     return {'version': 'computer-connect-20261104', 'chat_daily_limit': None, 'items': [
-        {'id': 'memory', 'name': 'Memória e histórico', 'state': 'configured', 'detail': 'Memórias editáveis em Configurações, busca no conteúdo e continuação de conversas preservando o original. Dados salvos neste navegador e incluídos no backup.'},
+        {'id': 'memory', 'name': 'Memória e histórico', 'state': 'configured', 'detail': 'Memórias editáveis em Configurações, busca no conteúdo e continuação de conversas preservando o original. Sem login, dados salvos neste navegador. Com Minha conta e sincronização, conversas, projetos e preferências podem ser sincronizados no espaço privado da conta Google.'},
         {'id': 'self', 'name': 'Melhorar a própria BBLIA', 'state': 'configured' if api else 'missing', 'detail': 'Peça alterações na própria BBLIA por texto ou voz. Ela lê o código atual e prepara os arquivos alterados. Publicação depende de conexão de manutenção autenticada pelo proprietário.'},
         {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
@@ -152,7 +152,7 @@ def integration_status():
         {'id': 'weather', 'name': 'Previsão do tempo', 'state': 'configured', 'detail': 'Open-Meteo.'},
         {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Conexão própria com o Commander disponível no menu Computador e TV Box. Exige autorizar sua conta na BBLIA e selecionar o aparelho.'},
         {'id': 'accounts', 'name': 'E-mail, agenda e Drive', 'state': 'missing', 'detail': 'Conexão Google disponível para Gmail, agenda e Drive. Abra Conectar e gerenciar Google para verificar a configuração e autorizar sua conta.'},
-        {'id': 'sync', 'name': 'Sincronizar aparelhos', 'state': 'missing', 'detail': 'Projetos ficam neste navegador. Use exportar/importar backup para transferir.'}
+        {'id': 'sync', 'name': 'Sincronizar aparelhos', 'state': 'missing', 'detail': 'Login Google e histórico privado sincronizado no Drive, com cópia local por conta e exportação de backup.'}
     ]}
 
 

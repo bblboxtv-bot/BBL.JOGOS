@@ -1,3 +1,4 @@
+import bblia_sync as sync
 import bblia_google as google
 import html
 from bblia_work import memory_context
@@ -62,17 +63,24 @@ class Handler(BaseHTTPRequestHandler):
  def google_route(self):
   path=urlsplit(self.path).path;cookie=self.headers.get('Cookie','')
   try:
+   if path=='/api/account':return self.google_reply(200,google.status(cookie))
+   if path=='/api/sync' and self.command=='GET':return self.google_reply(200,sync.load(cookie))
    if path=='/api/google/status':return self.google_reply(200,google.status(cookie))
    if path=='/google-callback':
     new_cookie=google.callback(cookie,urlsplit(self.path).query)
     self.send_response(303);self.send_header('Location','/?google=connected');self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Length','0');self.end_headers();return
    google.check_origin(self.headers)
-   if path=='/api/google/disconnect':
-    result,new_cookie=google.disconnect(cookie);return self.google_reply(200,result,new_cookie)
+   if path in ('/api/google/disconnect','/api/account/logout'):
+    result,new_cookie=google.disconnect(cookie,revoke=path!='/api/account/logout');return self.google_reply(200,result,new_cookie)
    length=int(self.headers.get('Content-Length','0'))
-   if not 1<=length<=4096:return self.google_reply(400,{'error':'Pedido inválido.'})
+   if not 1<=length<=(sync.MAX_BYTES+4096 if path=='/api/sync' else 4096):return self.google_reply(400,{'error':'Pedido inválido.'})
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):raise ValueError()
+   if path=='/api/sync':return self.google_reply(200,sync.save(cookie,data))
+   if path=='/api/account/start':
+    current=google.status(cookie)['services']
+    services=list(dict.fromkeys(current+['login','sync']))
+    result,new_cookie=google.start(cookie,services);return self.google_reply(200,result,new_cookie)
    if path=='/api/google/start':
     result,new_cookie=google.start(cookie,data.get('services'));return self.google_reply(200,result,new_cookie)
    if path=='/api/google/query':return self.google_reply(200,google.execute(cookie,data.get('tool'),data.get('args',{})))
@@ -85,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,TypeError):return self.google_reply(400,{'error':'Pedido inválido.'})
   except Exception:return self.google_reply(502,{'error':'Não foi possível concluir a conexão Google.'})
  def do_GET(self):
-  if urlsplit(self.path).path in ('/api/google/status','/google-callback'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
   if urlsplit(self.path).path.startswith('/api/work/jobs/'):
    try:return self.reply(200,get_work(urlsplit(self.path).path.rsplit('/',1)[-1]))
@@ -93,6 +101,9 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path=='/api/integrations':
    result=integration_status();gs=google.status(self.headers.get('Cookie',''))
    for item in result['items']:
+    if item['id']=='sync':
+     item['state']='connected' if gs.get('user') and 'sync' in gs['services'] else 'ready'
+     item['detail']='Login com Google e histórico privado sincronizado no Drive. Abra Minha conta e sincronização para conectar.'
     if item['id']=='accounts':
      item['state']='connected' if gs['connected'] else ('ready' if gs['configured'] else 'missing')
      item['detail']=('Serviços autorizados neste navegador: '+', '.join(gs['services'])+'.' if gs['connected'] else gs['detail'])
@@ -215,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    APK_SLOTS.release()
  def do_POST(self):
-  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
    try:
