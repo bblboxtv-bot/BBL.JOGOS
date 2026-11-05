@@ -5,8 +5,8 @@ const workSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function wantsAutonomousWork(text,selected=[]){
  if(workspace.preferences.agent===false)return false;
  const verb=/(cria|crie|criar|faça|fazer|faz\b|monte|montar|constru|desenvolv|program|corrij|corrigir|altere|alterar|melhore|mudar|mude|quero|preciso)/i.test(text);
- const target=/\b(painel|pdv|dashboard|site|sistema|loja|app|aplicativo|launcher|código|codigo|projeto|página|pagina|html|programa)\b/i.test(text);
- const visual=selected.some(f=>f.type==='image')&&/(igual|parecido|parecida|baseado|baseada|referência|referencia)/i.test(text);
+ const target=/\b(painel|pdv|dashboard|site|sistema|loja|app|apk|aplicativo|launcher|código|codigo|projeto|página|pagina|html|programa)\b/i.test(text);
+ const visual=selected.some(f=>f.type==='image'||f.apk)&&/(igual|parecido|parecida|baseado|baseada|referência|referencia)/i.test(text);
  const mediaOnly=/^(?:crie|criar|faça|fazer|quero)\s+(?:(?:uma?|a|o)\s+)?(?:imagem|foto|logomarca|logo|vídeo|video|banner)\b/i.test(text);
  return verb&&!mediaOnly&&(target||visual||(currentChat()?.workMode&&/(corrij|altere|mude|adicione|remova|melhore|continue|finalize)/i.test(text)));
 }
@@ -202,3 +202,4 @@ async function initAutonomousWork(){
  await resumeAutonomousWork();
 }
 initAutonomousWork();
+
