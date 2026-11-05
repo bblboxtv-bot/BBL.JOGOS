@@ -75,7 +75,7 @@ async function initWorkbench(){
 
 // Notes remain in this browser's private workspace and are included in its backups.
 function showMemories(){
- const el=modalContent('Memória pessoal','Escolha o que a BBLIA deve lembrar nas próximas conversas deste navegador. Você pode editar ou apagar.');
+ const el=modalContent('Memória pessoal','Escolha o que a BBLIA deve lembrar neste espaço. Com sua conta conectada, as memórias também entram na sincronização. Você pode editar ou apagar.');
  const enabled=document.createElement('input');enabled.type='checkbox';enabled.checked=workspace.preferences.memory_enabled!==false;
  const label=document.createElement('label');label.textContent=' Usar minhas memórias nas respostas';label.prepend(enabled);el.append(label);
  const notes=field(el,'Uma memória por linha',(workspace.preferences.memories||[]).join('\n'),true);notes.maxLength=12000;
@@ -97,7 +97,7 @@ function manageConversation(){
  const title=field(el,'Nome da conversa',c.title);title.maxLength=100;
  button(el,'Salvar nome',async()=>{c.title=title.value.trim()||'Nova conversa';await persist();renderChat();document.getElementById('modal').close()});
  button(el,'Continuar em nova conversa',()=>branchConversation(c.messages.length));
- button(el,'Excluir esta conversa',()=>{const confirm=modalContent('Excluir conversa?','Esta conversa será removida deste aparelho. Exporte um backup se quiser guardá-la.');button(confirm,'Confirmar exclusão',async()=>{workspace.chats=workspace.chats.filter(item=>item.id!==c.id);workspace.active=workspace.chats[0]?.id||null;history=[];if(!workspace.active){newChat(c.projectId);return}await persist();renderChat();document.getElementById('modal').close()});button(confirm,'Voltar',()=>manageConversation())});
+ button(el,'Excluir esta conversa',()=>{const confirm=modalContent('Excluir conversa?',cloudUser?'Esta conversa será removida dos aparelhos sincronizados. Exporte um backup se quiser guardá-la.':'Esta conversa será removida deste aparelho. Exporte um backup se quiser guardá-la.');button(confirm,'Confirmar exclusão',async()=>{workspace.chats=workspace.chats.filter(item=>item.id!==c.id);workspace.active=workspace.chats[0]?.id||null;history=[];if(!workspace.active){newChat(c.projectId);return}await persist();renderChat();document.getElementById('modal').close()});button(confirm,'Voltar',()=>manageConversation())});
 }
 
 
