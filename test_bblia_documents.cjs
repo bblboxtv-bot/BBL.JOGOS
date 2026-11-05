@@ -1,0 +1,11 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const src=fs.readFileSync('bblia_work.js','utf8').replace(/initWorkbench\(\);\s*$/,'');let blob;
+const ctx={openSection(){},sendMessage(){},atob,TextEncoder,Uint8Array,DataView,structuredClone,setTimeout(){},Blob:class{constructor(parts,options){this.parts=parts;this.options=options;blob=this}},URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},document:{createElement:()=>({click(){}})}};
+vm.createContext(ctx);vm.runInContext(src,ctx);
+const raw=Uint8Array.from([80,75,3,4,0,255,128]);const file={name:'r.docx',content:'This is a summary, not the binary',data_base64:Buffer.from(raw).toString('base64'),mime:'application/docx'};
+ctx.file=file;vm.runInContext('downloadArtifact(file)',ctx);
+assert.deepEqual(Array.from(blob.parts[0]),Array.from(raw));
+vm.runInContext("downloadZip('docs.zip',[file])",ctx);
+const zipped=Buffer.concat(blob.parts.map(p=>Buffer.from(p)));const length=zipped.readUInt16LE(26);assert.deepEqual(Array.from(zipped.subarray(30+length,30+length+raw.length)),Array.from(raw));
+assert.equal(zipped.includes(Buffer.from('This is a summary')),false);
+console.log('PASS document downloads and ZIP preserve binary bytes, not textual summaries');

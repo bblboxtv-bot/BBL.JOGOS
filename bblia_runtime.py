@@ -8,7 +8,7 @@ STATE={'state':'not_ready','detail':'Preparando o ambiente de testes JavaScript.
 
 
 def safe_env():
-    return {'PATH':os.defpath,'LANG':'C.UTF-8','PYTHONIOENCODING':'utf-8'}
+    return {'PATH':os.defpath,'LANG':'C.UTF-8','PYTHONIOENCODING':'utf-8','OPENBLAS_NUM_THREADS':'1','OMP_NUM_THREADS':'1','MKL_NUM_THREADS':'1'}
 
 
 def worker(payload,timeout=4):

@@ -20,7 +20,7 @@ function wantsAutonomousWork(text,selected=[]){
 function projectArtifacts(projectId,chat){
  const files=new Map();
  workspace.chats.filter(c=>projectId?c.projectId===projectId:c.id===chat.id).sort((a,b)=>a.updated-b.updated)
-  .forEach(c=>c.messages.forEach(m=>(m.artifacts||[]).forEach(f=>files.set(f.name,f.content))));
+  .forEach(c=>c.messages.forEach(m=>(m.artifacts||[]).filter(f=>!f.data_base64).forEach(f=>files.set(f.name,f.content))));
  return Array.from(files,([name,content])=>({name,content}));
 }
 function renderWorkProgress(bubble,data,cancel){

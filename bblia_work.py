@@ -1,3 +1,4 @@
+import bblia_documents as documents
 """Validated inputs and concrete tools for the BBLIA workbench."""
 import base64
 import json
@@ -101,12 +102,19 @@ def prepare_messages(data):
 
 def work_tools():
     return [
+        {'type':'function','name':'criar_documento','description':'Gerar arquivo real Word, PDF, Excel ou PowerPoint. dados é JSON: docx/pdf {titulo,secoes:[{titulo,texto}]}; xlsx {titulo,cabecalhos:[texto],linhas:[[valores]]}; pptx {titulo,slides:[{titulo,texto}]}. Planilhas exportam dados sem fórmulas. Slides: até 700 caracteres e 8 parágrafos cada. Retorna download e validação estrutural, sem revisão visual.','parameters':{'type':'object','properties':{'nome':{'type':'string'},'formato':{'type':'string','enum':['docx','pdf','xlsx','pptx']},'dados':{'type':'string'}},'required':['nome','formato','dados'],'additionalProperties':False}},
         {'type': 'function', 'name': 'criar_arquivo', 'description': 'Entregar um arquivo completo de código ou texto para baixar. Não compila nem executa código.', 'parameters': {'type': 'object', 'properties': {'nome': {'type': 'string'}, 'conteudo': {'type': 'string'}}, 'required': ['nome', 'conteudo'], 'additionalProperties': False}},
         {'type': 'function', 'name': 'ler_github', 'description': 'Ler um arquivo UTF-8 de repositório público do GitHub. Não escreve nem publica alterações.', 'parameters': {'type': 'object', 'properties': {'repositorio': {'type': 'string', 'description': 'dono/repositorio'}, 'caminho': {'type': 'string'}, 'ref': {'type': 'string', 'description': 'branch ou tag; vazio usa branch padrão'}}, 'required': ['repositorio', 'caminho', 'ref'], 'additionalProperties': False}}
     ]
 
 
 def execute_work_tool(name, args, artifacts):
+    if name == 'criar_documento':
+        if len(artifacts)>=6:return {'error':'Máximo de seis arquivos por resposta.'}
+        try:
+            artifact=documents.create(args);artifacts.append(artifact)
+            return {'status':'created','name':artifact['name'],'validation':artifact['validation'],'delivery':'download na resposta'}
+        except (ValueError,TypeError) as exc:return {'error':str(exc)}
     if name == 'criar_arquivo':
         parts = str(args.get('nome', 'arquivo.txt')).replace('\\', '/').split('/')
         parts = [re.sub(r'[^\w. -]', '_', p)[:100].strip('. ') for p in parts if p not in ('', '.', '..')]
