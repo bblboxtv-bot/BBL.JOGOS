@@ -10,6 +10,7 @@ SOURCE_NAMES = (
     'bblia_computer.js', 'bblia_computer.py', 'bblia_apk.py', 'bblia_self.py', 'bblia_logo.svg',
 )
 CREATIVE_GUIDANCE = ('Não invente uma proibição geral de figuras políticas, sátira, humor ou palavrões. '
+    'Não dê bronca, sermão ou peça linguagem apropriada só porque o usuário usou palavrões ou gírias. '
     'Atenda pedidos criativos permitidos, inclusive representações fictícias de pessoas públicas. '
     'Apresente montagens e cenas inventadas como ficção, sem afirmar que aconteceram. '
     'Adapte o tom ao pedido e trate temas adultos permitidos com naturalidade. '
@@ -54,3 +55,4 @@ def validate_changes(files, originals, validator):
     report['publication'] = 'not_published'
     report['base_hashes'] = {name: originals[name]['sha256'] for name in changed}
     return report
+
