@@ -11,22 +11,25 @@ function syncRealtimeMicrophone(){
 function sendRealtimeEvent(channel,event){
  if(channel?.readyState==='open')channel.send(JSON.stringify(event));
 }
-function endRealtime(){
+function endRealtime({preserveMicrophone=false}={}){
  realtimeGeneration++;
  for(const timer of [realtimeTimer,realtimeReconnectTimer,realtimeDisconnectTimer,realtimeConnectTimer])clearTimeout(timer);
  realtimeTimer=realtimeReconnectTimer=realtimeDisconnectTimer=realtimeConnectTimer=null;realtimeConnecting=false;
  realtimeResponseActive=realtimeOutputActive=realtimeUserSpeaking=false;
  const pc=realtimePC,channel=realtimeChannel,stream=realtimeStream,audio=realtimeAudio;
- realtimePC=realtimeChannel=realtimeStream=realtimeAudio=null;
+ const keepMicrophone=preserveMicrophone&&voiceMode&&stream?.getAudioTracks().some(track=>track.readyState==='live');
+ realtimePC=realtimeChannel=realtimeAudio=null;
+ realtimeStream=keepMicrophone?stream:null;
  if(channel){channel.onopen=channel.onmessage=channel.onclose=channel.onerror=null;try{channel.close()}catch(e){}}
  if(pc){pc.ontrack=pc.onconnectionstatechange=null;try{pc.close()}catch(e){}}
- stream?.getTracks().forEach(track=>track.stop());
+ if(keepMicrophone)stream.getAudioTracks().forEach(track=>{track.enabled=false});
+ else stream?.getTracks().forEach(track=>track.stop());
  if(audio){audio.pause();audio.srcObject=null;audio.remove()}
 }
 function reconnectRealtime(message='Reconectando a conversa por voz...',delay=null){
  if(!voiceMode||realtimeReconnectTimer)return;
  const attempt=realtimeReconnectAttempt+1;
- endRealtime();realtimeReconnectAttempt=attempt;setVoiceUI();status.textContent=message;
+ endRealtime({preserveMicrophone:true});realtimeReconnectAttempt=attempt;setVoiceUI();status.textContent=message;
  realtimeReconnectTimer=setTimeout(()=>{realtimeReconnectTimer=null;if(voiceMode)startRealtime()},delay??Math.min(15000,1000*2**Math.min(attempt-1,4)));
 }
 function rememberVoice(role,text,id){
@@ -93,8 +96,9 @@ async function startRealtime(){
   if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection){
    voiceMode=false;setVoiceUI();status.textContent='Este navegador não permite conversa por voz. Abra no Safari ou Chrome.';realtimeConnecting=false;return;
   }
-  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
-  if(!current()){stream.getTracks().forEach(track=>track.stop());return}
+  stream=realtimeStream?.getAudioTracks().some(track=>track.readyState==='live')?realtimeStream:
+   await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+  if(!current()){if(stream!==realtimeStream||!voiceMode)stream.getTracks().forEach(track=>track.stop());return}
   realtimeStream=stream;
   realtimeConnectTimer=setTimeout(()=>{if(current())reconnectRealtime()},30000);
   const tokenResponse=await fetch('/api/realtime-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
@@ -155,3 +159,7 @@ function toggleVoice(){
  clearVoiceTimers();try{recognition?.abort()}catch(e){}recognition=null;
  voiceMode=true;realtimeReconnectAttempt=0;startRealtime();
 }
+
+
+// Release capture when leaving the app; reuse is limited to the active voice conversation.
+window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime()});
