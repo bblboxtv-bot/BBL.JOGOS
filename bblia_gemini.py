@@ -8,7 +8,7 @@ def responder(messages, model=None):
     key=os.environ.get('GEMINI_API_KEY','')
     if not key:
         raise GeminiError('Gemini não configurado no servidor. Configure GEMINI_API_KEY.')
-    model=model or os.environ.get('BBLIA_GEMINI_MODEL','gemini-2.5-flash')
+    model=model or os.environ.get('BBLIA_GEMINI_MODEL','gemini-3.5-flash-lite')
     if not model.replace('-','').replace('.','').isalnum():
         raise GeminiError('Modelo Gemini inválido.')
     contents=[]
