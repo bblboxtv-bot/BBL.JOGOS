@@ -77,9 +77,11 @@ if(typeof sendMessage==='function'){
   const text=prompt.value.trim();
   if(!computerConnectIntent(text))return computerSendMessage();
   if(!workspaceReady||send.disabled)return;
-  prompt.value='';add('user',text);history.push({role:'user',content:text});await saveChat();
   send.disabled=true;
-  try{return await connectRequestedComputer()}finally{send.disabled=false;waitingVoice=false;if(voiceMode)scheduleVoiceListen(300)}
+  try{
+   prompt.value='';add('user',text);history.push({role:'user',content:text});await saveChat();
+   return await connectRequestedComputer();
+  }finally{send.disabled=false;waitingVoice=false;if(voiceMode)scheduleVoiceListen(300)}
  };
 }
 function wantsComputerWork(text){
