@@ -1,6 +1,6 @@
 'use strict';
 // Browser recognition with selected-provider audio transcription and synthesis.
-function voiceProviderOptions(){return typeof aiRequestOptions==='function'?aiRequestOptions():{provider:'gemini'}}
+function voiceProviderOptions(){return typeof aiRequestOptions==='function'?aiRequestOptions():{provider:'openai',paid_authorized:true}}
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
@@ -243,11 +243,11 @@ speak=async function(text){
  try{for(let index=0;index<chunks.length;index++){
   const ready=await pending;if(token!==voiceToken)return;
   pending=index+1<chunks.length?loadSpeechChunk(chunks[index+1],token):null;
-  if(ready.error){await deviceSpeech(chunks[index],token);continue}
+  if(ready.error)throw ready.error;
   try{
    if(ready.buffer)await playSpeechBuffer(ready.buffer,token);
    else if(ready.blob)await playSpeechBlob(ready.blob,token);
-  }catch(error){if(token!==voiceToken)return;await deviceSpeech(chunks[index],token)}
+  }catch(error){if(token!==voiceToken)return;throw error}
  }}finally{if(token===voiceToken){voiceSpeaking=false;stopVoiceBarge()}}
 };
 
