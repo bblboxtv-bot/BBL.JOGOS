@@ -204,12 +204,15 @@ class Handler(BaseHTTPRequestHandler):
   if not key:return self.reply(503,{'error':'API nao configurada'})
   try:
    length=int(self.headers.get('Content-Length','0'))
-   if length>500:return self.reply(413,{'error':'Pedido invalido'})
+   if not 1<=length<=20000:return self.reply(413,{'error':'Pedido invalido'})
    data=json.loads(self.rfile.read(length)) if length else {}
-   if data.get('paid_authorized') is not True:return self.reply(400,{'error':'Voz OpenAI paga exige autorização explícita. Use a conversa contínua gratuita.'})
-   session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em português brasileiro de forma natural e objetiva, concluindo toda a resposta. Espere a pessoa terminar de falar. Ignore barulhos de máquinas, impactos, vento, conversas de fundo e sons sem fala clara dirigida a você. Não responda com confirmações como entendi a ruídos. Se não houver fala compreensível, permaneça em silêncio aguardando. Não encerre a conversa por silêncio; o usuário encerra pelo botão.','audio':{'input':{'noise_reduction':{'type':'near_field'},'transcription':{'model':'gpt-4o-mini-transcribe','language':'pt'},'turn_detection':{'type':'server_vad','threshold':0.75,'prefix_padding_ms':300,'silence_duration_ms':1000,'create_response':True,'interrupt_response':False}},'output':{'voice':'marin'}}}}
+   if not isinstance(data,dict) or data.get('paid_authorized') is not True:return self.reply(400,{'error':'Autorize o uso da voz OpenAI nas configurações.'})
+   session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em português brasileiro de forma natural e objetiva, concluindo toda a resposta. Espere a pessoa terminar de falar. Ignore barulhos de máquinas, impactos, vento, conversas de fundo e sons sem fala clara dirigida a você. Não responda com confirmações como entendi a ruídos. Se não houver fala compreensível, permaneça em silêncio aguardando. Não encerre a conversa por silêncio; o usuário encerra pelo botão.','audio':{'input':{'noise_reduction':{'type':'near_field'},'transcription':{'model':'gpt-4o-mini-transcribe','language':'pt'},'turn_detection':{'type':'server_vad','threshold':0.6,'prefix_padding_ms':300,'silence_duration_ms':650,'create_response':True,'interrupt_response':True}},'output':{'voice':'marin'}}}}
    session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Vídeos usam o LTX Video gratuito com fila e limite. Caso a ferramenta retorne erro ou cota atingida, explique sem afirmar que criou o vídeo. Nunca ofereça contratar um plano pago. Fotos e arquivos podem ser anexados na conversa de texto para análise. Edição de fotos está disponível no botão Editar foto após anexar.'
    session['session']['instructions']+=' '+CREATIVE_GUIDANCE+' Não repreenda o usuário por palavrões, gírias ou desabafos. Responda ao pedido com naturalidade.'
+   session['session']['instructions']+=' Use uma voz feminina acolhedora, ritmo ágil e pausas breves. Responda com até três frases naturais, expandindo quando solicitado. Não repita saudações. Nunca afirme execução sem ferramenta confirmar. Para pesquisa atual, leitura de arquivos e documentos, use fazer_trabalho.'
+   context=data.get('context','')
+   if isinstance(context,str):session['session']['instructions']+=' Contexto informado pelo usuário, sem comprovação de execução: '+context[:12000]
    session['session']['tools']=[{'type':'function','name':'criar_midia','description':'Criar uma imagem, foto, logomarca ou vídeo e exibir na conversa','parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['image','video']},'prompt':{'type':'string','description':'Descrição visual completa, até 900 caracteres'}},'required':['kind','prompt'],'additionalProperties':False}}]
    session['session']['tools'].append({'type':'function','name':'fazer_trabalho','description':'Criar ou alterar um painel, PDV, site, sistema, aplicativo, projeto ou tarefa no computador e na TV Box a partir do pedido e dos anexos da conversa. Executa etapas e entrega arquivos.','parameters':{'type':'object','properties':{'pedido':{'type':'string','description':'Pedido completo preservando os requisitos do usuário'}},'required':['pedido'],'additionalProperties':False}})
    session['session']['instructions']+=' Para criar ou alterar sistemas, painéis, PDV, sites, código ou aplicativos, ou executar tarefas no computador ou TV Box, use fazer_trabalho. A interface tem os anexos de referência da conversa. Escolha detalhes comuns sem perguntar e aguarde o resultado real antes de confirmar entrega.'
@@ -218,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
    with urllib.request.urlopen(req,timeout=15) as res:data=json.load(res)
    value=data.get('value') or data.get('client_secret',{}).get('value')
    if not value:return self.reply(502,{'error':'Token de voz nao retornado'})
-   return self.reply(200,{'token':value})
+   return self.reply(200,{'token':value,'model':'gpt-realtime','voice':'marin'})
   except urllib.error.HTTPError as e:return self.reply(502,{'error':'Falha ao iniciar voz em tempo real (HTTP %s)'%e.code})
   except Exception:return self.reply(502,{'error':'Nao foi possivel iniciar a conversa por voz'})
  def media_create(self):
@@ -465,6 +468,7 @@ if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
 
 
 

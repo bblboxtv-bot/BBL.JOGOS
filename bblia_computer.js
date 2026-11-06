@@ -51,8 +51,14 @@ async function computerConnection(){
 async function computerReady(){
  computerConnectionIssue='';
  try{
-  const c=await computerConnection();
-  if(!c?.access_token||!c.device_id){computerConnectionIssue='Conecte o Commander e selecione seu computador na BBLIA.';return false}
+  let c=await computerConnection();
+  if(!c?.access_token){computerConnectionIssue='Conecte sua conta Commander uma vez na BBLIA para usar seu computador.';return false}
+  if(!c.device_id){
+   const available=computerDevices((await computerPost('devices',{access_token:c.access_token})).result);
+   if(available.length!==1){computerConnectionIssue='Selecione o computador no menu Computador e TV Box.';return false}
+   c={...c,device_id:available[0].id,device_name:available[0].name};await saveComputer(c);
+   computerDeviceCheck={id:c.device_id,at:Date.now(),online:available[0].online};
+  }
   if(computerDeviceCheck?.id===c.device_id&&Date.now()-computerDeviceCheck.at<10000){
    if(!computerDeviceCheck.online)computerConnectionIssue='Seu computador está offline. O pedido foi preservado; abra o Commander no computador para continuar.';
    return computerDeviceCheck.online;
@@ -204,3 +210,4 @@ async function initComputerConnection(){
  else await resumeQueuedComputerTask();
 }
 initComputerConnection();
+

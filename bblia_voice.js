@@ -1,5 +1,5 @@
 'use strict';
-// Browser recognition with selected-provider audio transcription and synthesis.
+// OpenAI voice: continuous WebRTC conversation and separate message dictation.
 function voiceProviderOptions(){return typeof aiRequestOptions==='function'?aiRequestOptions():{provider:'openai',paid_authorized:true}}
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
@@ -366,11 +366,135 @@ if(typeof openSection==='function'){
  openSection=function(section){
   const result=voiceOpenSection(section);if(section!=='voices')return result;
   const parent=document.getElementById('modalContent');if(!parent)return result;
-  const label=document.createElement('label');label.className='work-field';label.textContent='Velocidade da fala';
+  const description=parent.querySelector('p');if(description)description.textContent='Conversa contínua: voz feminina Marin, diretamente na OpenAI. As opções abaixo ajustam a leitura de mensagens e o ditado.';
+  const label=document.createElement('label');label.className='work-field';label.textContent='Velocidade da leitura';
   const select=document.createElement('select');select.setAttribute('aria-label','Velocidade da fala');
   for(const [value,name] of [[1,'Normal'],[1.15,'Ágil'],[1.3,'Rápida']]){const option=document.createElement('option');option.value=String(value);option.textContent=name;select.append(option)}
   select.value=String(voicePlaybackRate);select.onchange=()=>{voicePlaybackRate=Number(select.value);localStorage.setItem('bblia_voice_speed',String(voicePlaybackRate));if(currentAudio)currentAudio.playbackRate=voicePlaybackRate};
-  label.append(select);parent.append(label);return result;
+  label.append(select);parent.append(label);
+  const usage=document.createElement('p');const days=typeof workspace!=='undefined'?workspace.preferences.voiceUsage||{}:{};
+  const values=Object.values(days);usage.textContent='Voz em tempo real registrada neste espaço: '+values.reduce((n,r)=>n+r.responses,0)+' respostas, '+values.reduce((n,r)=>n+r.input,0)+' tokens de entrada e '+values.reduce((n,r)=>n+r.output,0)+' de saída nos últimos dias. Não inclui chat, trabalhos ou ditado; não é uma fatura. Consulte a OpenAI para o valor cobrado.';parent.append(usage);return result;
  };
 }
+
+// The main microphone streams speech directly; dictation keeps the recorder above.
+let realtimeChannel=null,realtimeAbort=null,realtimeStarted=0,realtimeWatchdog=null;
+let realtimeDisconnectedTimer=null;
+const realtimeSeen=new Set(),realtimeTranscripts=new Map();
+function sendRealtimeEvent(channel,event){
+ if(channel?.readyState!=='open')return false;
+ channel.send(JSON.stringify(event));return true;
+}
+function syncRealtimeMicrophone(){
+ if(!realtimePC)return;
+ for(const track of voiceCapture?.getAudioTracks()||[])track.enabled=voiceMode&&!send.disabled;
+}
+function recordRealtimeUsage(response){
+ if(!response?.id||realtimeSeen.has('usage:'+response.id))return;
+ realtimeSeen.add('usage:'+response.id);
+ const usage=response.usage;if(!usage)return;
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const days=workspace.preferences.voiceUsage||{};
+ const row=days[day]||{responses:0,input:0,output:0,model:'gpt-realtime'};
+ row.responses++;row.input+=Number(usage.input_tokens)||0;row.output+=Number(usage.output_tokens)||0;days[day]=row;
+ workspace.preferences.voiceUsage=Object.fromEntries(Object.entries(days).sort().slice(-31));persist();
+}
+function realtimeTranscript(event,role,final){
+ const key=role+':'+event.item_id;
+ let entry=realtimeTranscripts.get(key);
+ const text=final?(event.transcript||event.text||entry?.text||''):(entry?.text||'')+(event.delta||'');
+ if(!text.trim())return;
+ if(!entry){entry={bubble:add(role,text),text:'',saved:false};realtimeTranscripts.set(key,entry)}
+ entry.text=text;entry.bubble.textContent=text;
+ if(final&&!entry.saved){entry.saved=true;entry.message={role,content:text};history.push(entry.message);saveChat()}
+ else if(final&&entry.message){entry.message.content=text;saveChat()}
+}
+async function handleRealtimeEvent(event,channel){
+ if(channel!==realtimeChannel)return;
+ const type=event.type;
+ if(type==='session.created'||type==='session.updated')status.textContent='🎙️ Pode falar. Conversa OpenAI em tempo real.';
+ else if(type==='input_audio_buffer.speech_started'){
+  voiceSpeaking=false;waitingVoice=false;status.textContent='🎙️ Estou ouvindo você.';
+ }else if(type==='input_audio_buffer.speech_stopped')status.textContent='Preparando a resposta...';
+ else if(type==='output_audio_buffer.started'){voiceSpeaking=true;status.textContent='🔊 BBLIA falando...'}
+ else if(type==='output_audio_buffer.stopped'||type==='output_audio_buffer.cleared'){
+  voiceSpeaking=false;if(!send.disabled)status.textContent='🎙️ Pode continuar falando.';
+ }else if(type==='conversation.item.input_audio_transcription.completed')realtimeTranscript(event,'user',true);
+ else if(type==='response.output_audio_transcript.delta'||type==='response.audio_transcript.delta'||type==='response.output_text.delta')realtimeTranscript(event,'assistant',false);
+ else if(type==='response.output_audio_transcript.done'||type==='response.audio_transcript.done'||type==='response.output_text.done')realtimeTranscript(event,'assistant',true);
+ else if(type==='response.function_call_arguments.done'){
+  if(event.name==='fazer_trabalho')await handleRealtimeWork(event,channel);
+  else if(event.name==='criar_midia')await handleRealtimeMedia(event,channel);
+  else{
+   sendRealtimeEvent(channel,{type:'conversation.item.create',item:{type:'function_call_output',call_id:event.call_id,output:JSON.stringify({error:'Ferramenta não disponível.'})}});
+   sendRealtimeEvent(channel,{type:'response.create'});
+  }
+ }else if(type==='response.done'){
+  recordRealtimeUsage(event.response);
+  const response=event.response;
+  if(response?.status==='failed')status.textContent='A resposta por voz falhou. Encerre e tente novamente.';
+ }else if(type==='error'){
+  status.textContent='Falha na conversa por voz: '+(event.error?.message||'Tente iniciar novamente.');
+ }
+}
+const endRecordedVoice=endRealtime;
+endRealtime=function(){
+ clearTimeout(realtimeWatchdog);clearTimeout(realtimeDisconnectedTimer);
+ realtimeAbort?.abort();realtimeAbort=null;
+ const pc=realtimePC;realtimePC=null;
+ if(realtimeChannel){realtimeChannel.onmessage=realtimeChannel.onopen=realtimeChannel.onclose=null;try{realtimeChannel.close()}catch(e){}realtimeChannel=null}
+ if(pc){pc.onconnectionstatechange=pc.ontrack=null;pc.close()}
+ if(realtimeAudio){realtimeAudio.pause();realtimeAudio.srcObject=null;realtimeAudio=null}
+ realtimeStarted=0;realtimeTranscripts.clear();realtimeSeen.clear();
+ endRecordedVoice();
+};
+function stopRealtimeWithError(message){
+ voiceMode=false;endRealtime();stopSpeaking();setVoiceUI();status.textContent=message;
+}
+async function startOpenAIVoice(){
+ const generation=voiceGeneration;realtimeConnecting=true;
+ const active=()=>voiceMode&&generation===voiceGeneration;
+ const controller=new AbortController();realtimeAbort=controller;
+ const timeout=setTimeout(()=>controller.abort(),25000);
+ try{
+  if(!window.RTCPeerConnection||!navigator.mediaDevices?.getUserMedia)throw Error('Conversa em tempo real indisponível neste navegador. Use o ditado de mensagens.');
+  const audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.autoplay=true;audio.muted=muted;realtimeAudio=audio;
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+  if(!active()){stream.getTracks().forEach(t=>t.stop());return}voiceCapture=stream;
+  const pc=new RTCPeerConnection();realtimePC=pc;for(const track of stream.getAudioTracks())pc.addTrack(track,stream);
+  pc.ontrack=e=>{if(!active())return;audio.srcObject=e.streams[0];audio.play().catch(()=>{status.textContent='Toque em Ativar som para ouvir.';const b=document.createElement('button');b.textContent='Ativar som';b.className='subbtn';b.onclick=()=>audio.play().then(()=>b.remove()).catch(()=>{});feed.append(b)})};
+  pc.onconnectionstatechange=()=>{
+   if(!active())return;clearTimeout(realtimeDisconnectedTimer);
+   if(pc.connectionState==='failed'||pc.connectionState==='closed')stopRealtimeWithError('A conexão de voz caiu. Toque no microfone para reconectar.');
+   else if(pc.connectionState==='disconnected')realtimeDisconnectedTimer=setTimeout(()=>{if(active()&&pc.connectionState==='disconnected')stopRealtimeWithError('Conexão de voz interrompida. Toque no microfone para reconectar.')},8000);
+  };
+  const channel=pc.createDataChannel('oai-events');realtimeChannel=channel;
+  channel.onmessage=event=>{try{const data=JSON.parse(event.data);handleRealtimeEvent(data,channel).catch(()=>{if(active())status.textContent='Não foi possível concluir esta etapa da conversa.'})}catch(e){}};
+  channel.onopen=()=>{if(!active())return;clearTimeout(realtimeWatchdog);realtimeStarted=Date.now();realtimeConnecting=false;status.textContent='🎙️ Pode falar. Estou ouvindo.';syncRealtimeMicrophone()};
+  channel.onclose=()=>{if(active())stopRealtimeWithError('A conversa por voz foi desconectada. Toque no microfone para retomar.')};
+  const context=JSON.stringify({name:workspace.preferences.name,instructions:workspace.preferences.instructions,project:typeof currentProject==='function'?currentProject()?.name:'',history:history.slice(-8).map(m=>({role:m.role,content:String(m.content).slice(0,1000)}))});
+  const response=await fetch('/api/realtime-token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paid_authorized:true,context:context.slice(0,12000)}),signal:controller.signal});
+  const secret=await response.json();if(!response.ok||!secret.token)throw Error(secret.error||'Não foi possível iniciar a voz OpenAI.');if(!active())return;
+  const offer=await pc.createOffer();await pc.setLocalDescription(offer);if(!active())return;
+  const answer=await fetch('https://api.openai.com/v1/realtime/calls',{method:'POST',headers:{Authorization:'Bearer '+secret.token,'Content-Type':'application/sdp'},body:offer.sdp,signal:controller.signal});
+  if(!answer.ok)throw Error('A OpenAI não abriu a conversa por voz (HTTP '+answer.status+').');
+  const sdp=await answer.text();if(!active())return;await pc.setRemoteDescription({type:'answer',sdp});
+  if(channel.readyState!=='open')realtimeWatchdog=setTimeout(()=>{if(active()&&channel.readyState!=='open')stopRealtimeWithError('Não foi possível estabelecer o áudio. Toque no microfone para tentar novamente.')},15000);
+ }catch(error){if(active())stopRealtimeWithError(error.name==='AbortError'?'A conexão de voz demorou demais. Toque no microfone para tentar novamente.':error.message)}
+ finally{clearTimeout(timeout);if(realtimeAbort===controller)realtimeAbort=null;if(active()&&realtimeChannel?.readyState==='open')realtimeConnecting=false}
+}
+const toggleRecordedVoice=toggleVoice;
+toggleVoice=function(){
+ if(voiceMode){voiceMode=false;endRealtime();stopSpeaking();setVoiceUI();status.textContent='Conversa por voz encerrada';return}
+ if(send.disabled){status.textContent='Aguarde a tarefa atual terminar.';return}
+ if(voiceProviderOptions().provider!=='openai')return toggleRecordedVoice();
+ stopSpeaking();endRealtime();unlockVoicePlayback();
+ if(dictation){dictation.onend=null;try{dictation.abort()}catch(e){}dictation=null;document.getElementById('dictate').classList.remove('listening')}
+ voiceMode=true;muted=false;localStorage.setItem('bblia_muted','0');document.getElementById('auto').checked=true;updateMute();setVoiceUI();status.textContent='Conectando a conversa OpenAI...';startOpenAIVoice();
+};
+const scheduleRecordedVoice=scheduleVoiceListen;
+scheduleVoiceListen=function(delay){if(!realtimePC&&!realtimeConnecting)scheduleRecordedVoice(delay)};
+const replyRecordedVoice=replyByVoice;
+replyByVoice=async function(answer){if(realtimePC){waitingVoice=false;syncRealtimeMicrophone();return}return replyRecordedVoice(answer)};
+
 

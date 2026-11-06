@@ -260,9 +260,11 @@ async function handleRealtimeWork(call,channel){
   const project=currentProject();const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
   if(typeof args.pedido!=='string'||args.pedido.length<5)throw Error('Descreva o trabalho que deseja criar.');
   if(selected.length>4)throw Error('Use até quatro referências por trabalho.');
-  const useComputer=!wantsSelfImprovement(args.pedido)&&typeof wantsComputerWork==='function'&&(wantsComputerWork(args.pedido)||(wantsAndroidBuild(args.pedido)&&await computerReady()));
-  if(useComputer&&!await computerReady())throw Error('Conecte o Commander no menu Computador e TV Box da BBLIA.');
-  result=await runAutonomousWork(args.pedido,selected,{useComputer});
+  const useComputer=!wantsSelfImprovement(args.pedido)&&((typeof wantsComputerWork==='function'&&wantsComputerWork(args.pedido))||wantsAndroidBuild(args.pedido));
+  if(useComputer&&!await computerReady()){
+   if(typeof queueComputerTask==='function')await queueComputerTask(args.pedido,selected);
+   result={status:'blocked',summary:computerConnectionIssue||'Conecte sua conta Commander na BBLIA para executar este pedido.',executed:false};
+  }else result=await runAutonomousWork(args.pedido,selected,{useComputer});
  }catch(error){result={status:'failed',error:error.message}}
  if(channel.readyState==='open'){
   sendRealtimeEvent(channel,{type:'conversation.item.create',item:{type:'function_call_output',call_id:call.call_id,output:JSON.stringify(result)}});
@@ -281,6 +283,7 @@ async function initAutonomousWork(){
  await resumeAutonomousWork();
 }
 initAutonomousWork();
+
 
 
 
