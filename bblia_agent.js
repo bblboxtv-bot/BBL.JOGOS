@@ -86,7 +86,7 @@ paintResponse=function(bubble,text,artifacts=[],sources=[]){
  if(artifacts.some(file=>file.name==='index.html'))button(bubble,'▶ Abrir prévia do painel',()=>openWorkPreview(artifacts));
 };
 async function requestWork(payload){
- const response=await fetch('/api/work/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+ const response=await fetch('/api/work/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...(typeof aiRequestOptions==='function'?aiRequestOptions():{})})});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Não foi possível iniciar o trabalho.');return data;
 }
 async function saveWorkCheckpoint(pending,data){
@@ -270,5 +270,6 @@ async function initAutonomousWork(){
  await resumeAutonomousWork();
 }
 initAutonomousWork();
+
 
 

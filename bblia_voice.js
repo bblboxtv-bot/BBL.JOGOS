@@ -1,5 +1,6 @@
 'use strict';
-// Browser recognition + Gemini audio transcription; no paid realtime session.
+// Browser recognition with selected-provider audio transcription and synthesis.
+function voiceProviderOptions(){return typeof aiRequestOptions==='function'?aiRequestOptions():{provider:'gemini'}}
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
@@ -34,7 +35,7 @@ async function finishVoiceBarge(state){
  try{
   const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)});
   if(!active())return;
-  const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encoded,mime:blob.type}),signal:controller.signal});
+  const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...voiceProviderOptions(),audio:encoded,mime:blob.type}),signal:controller.signal});
   const result=await response.json();if(!active())return;if(!response.ok)throw Error(result.error||'Falha no reconhecimento.');
   // The interrupted answer's finally must release the composer before the new turn.
   while(send.disabled&&active())await new Promise(resolve=>setTimeout(resolve,30));
@@ -208,7 +209,7 @@ async function loadSpeechChunk(text,token){
  const timeout=setTimeout(()=>controller.abort(),16000);
  try{
   const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({text,voice:voiceOptions[voiceIndex]?.api||'nova',segments:true}),signal:controller.signal});
+   body:JSON.stringify({...voiceProviderOptions(),text,voice:voiceOptions[voiceIndex]?.api||'nova',segments:true}),signal:controller.signal});
   if(!response.ok)throw Error('Serviço de voz indisponível.');
   if(token!==voiceToken)return {};
   if(response.headers?.get('Content-Type')?.includes('application/json')){
@@ -311,7 +312,7 @@ async function captureVoice(){
     const blob=new Blob(chunks,{type:recorder.mimeType||mime});
     const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)});
     if(!active())return;
-    const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encoded,mime:blob.type}),signal:controller.signal});const result=await response.json();
+    const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...voiceProviderOptions(),audio:encoded,mime:blob.type}),signal:controller.signal});const result=await response.json();
     if(!active())return;if(!response.ok)throw Error(result.error||'Falha no reconhecimento.');
     waitingVoice=false;await sendRecognizedVoice(result.text);
    }catch(e){if(active())voiceFailure(e)}finally{clearTimeout(timeout);if(voiceRequest===controller)voiceRequest=null;if(voiceOneShot)endRealtime()}
@@ -332,12 +333,13 @@ listenVoice=function(){
  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR||voiceUseRecorder||androidVoiceCapture()){captureVoice();return}
  const generation=voiceGeneration,rec=new SR();recognition=rec;let spoken='',fallback=false,delivered=false;
- const deliver=()=>{if(delivered||generation!==voiceGeneration||!voiceMode||!spoken)return;delivered=true;if(rec===recognition)recognition=null;try{rec.stop?.()}catch(e){}sendRecognizedVoice(spoken)};
+ const recover=()=>{if(generation!==voiceGeneration||recognition!==rec||!voiceMode||delivered)return;recognition=null;rec.onend=null;try{rec.abort()}catch(e){}voiceUseRecorder=true;captureVoice()};
+ const deliver=()=>{if(delivered||generation!==voiceGeneration||!voiceMode||!spoken)return;delivered=true;clearTimeout(voiceListenTimer);if(rec===recognition)recognition=null;try{rec.stop?.()}catch(e){}sendRecognizedVoice(spoken)};
  rec.lang='pt-BR';rec.continuous=false;rec.interimResults=false;
  rec.onresult=e=>{if(generation!==voiceGeneration)return;spoken=Array.from(e.results).filter(r=>r.isFinal!==false).map(r=>r[0].transcript).join(' ').trim();if(spoken){waitingVoice=true;deliver()}};
  rec.onerror=e=>{if(generation!==voiceGeneration)return;if(e.error==='not-allowed'){voiceFailure(e);return}if(e.error!=='no-speech'&&e.error!=='aborted'){voiceUseRecorder=true;fallback=true}};
- rec.onend=()=>{if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(delivered)return;if(spoken)deliver();else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};
- try{rec.start();status.textContent='🎙️ Pode falar. Estou ouvindo.'}catch(e){recognition=null;voiceUseRecorder=true;captureVoice()}
+ rec.onend=()=>{clearTimeout(voiceListenTimer);if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(delivered)return;if(spoken)deliver();else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};
+ try{rec.start();voiceListenTimer=setTimeout(recover,10000);status.textContent='🎙️ Pode falar. Estou ouvindo.'}catch(e){recognition=null;voiceUseRecorder=true;captureVoice()}
 };
 function toggleVoice(){
  if(voiceMode){voiceMode=false;endRealtime();stopSpeaking();status.textContent='Conversa por voz encerrada';setVoiceUI();return}
@@ -349,7 +351,8 @@ function toggleVoice(){
 const originalDictateMessage=dictateMessage;
 dictateMessage=function(){
  if(voiceMode)return;
- if(window.SpeechRecognition||window.webkitSpeechRecognition)return originalDictateMessage();
+ if(voiceOneShot){if(voiceRecorder?.state==='recording')voiceRecorder.stop();return}
+ if(voiceProviderOptions().provider!=='openai'&&(window.SpeechRecognition||window.webkitSpeechRecognition))return originalDictateMessage();
  endRealtime();unlockVoicePlayback();prepareVoiceContext();voiceOneShot=true;captureVoice();
 };
 send.addEventListener?.('click',()=>unlockVoicePlayback(),{capture:true});
@@ -368,3 +371,4 @@ if(typeof openSection==='function'){
   label.append(select);parent.append(label);return result;
  };
 }
+

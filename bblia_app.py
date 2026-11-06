@@ -27,7 +27,7 @@ LOGO_JPG=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABUOEBIQDRUSERIYFhUZH
 LIMIT_LOCK=threading.Lock()
 REQUESTS={}
 IN_FLIGHT=threading.BoundedSemaphore(2)
-TTS_IN_FLIGHT=threading.BoundedSemaphore(1)
+TTS_IN_FLIGHT=threading.BoundedSemaphore(2)
 def weather_for(city):
  city=str(city).strip()[:90]
  if not city:return {'error':'Informe a cidade para consultar o tempo.'}
@@ -356,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
    if not isinstance(data,dict):raise ValueError('Pedido inválido.')
    acquired=IN_FLIGHT.acquire(blocking=False)
    if not acquired:return self.reply(429,{'error':'Aguarde a solicitação atual terminar.'})
-   return self.reply(200,{'text':transcribe(data.get('audio'),data.get('mime'))})
+   return self.reply(200,{'text':transcribe(data.get('audio'),data.get('mime'),provider=data.get('provider','gemini'),paid_authorized=data.get('paid_authorized',False))})
   except (ValueError,TypeError):return self.reply(400,{'error':'Gravação inválida.'})
   except SpeechError as exc:return self.reply(503,{'error':str(exc)})
   finally:
@@ -371,9 +371,9 @@ class Handler(BaseHTTPRequestHandler):
    acquired=TTS_IN_FLIGHT.acquire(blocking=False)
    if not acquired:return self.reply(429,{'error':'Voz ocupada. Tente novamente.'})
    if payload.get('segments') is True:
-    parts=synthesize(payload.get('text'),payload.get('voice','nova'),segments=True)
+    parts=synthesize(payload.get('text'),payload.get('voice','nova'),segments=True,provider=payload.get('provider','gemini'),paid_authorized=payload.get('paid_authorized',False))
     return self.reply(200,{'segments':[base64.b64encode(part).decode() for part in parts],'mime':'audio/mpeg'})
-   audio=synthesize(payload.get('text'),payload.get('voice','nova'))
+   audio=synthesize(payload.get('text'),payload.get('voice','nova'),provider=payload.get('provider','gemini'),paid_authorized=payload.get('paid_authorized',False))
    self.send_response(200);self.send_header('Content-Type','audio/mpeg');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(audio)));self.end_headers();self.wfile.write(audio)
   except (ValueError,TypeError):return self.reply(400,{'error':'Texto ou voz inválidos.'})
   except SpeechError as exc:return self.reply(503,{'error':str(exc)})
@@ -384,6 +384,8 @@ class Handler(BaseHTTPRequestHandler):
    instructions='Voce e a BBLIA, assistente em portugues brasileiro orientada a resolver tarefas. Seja objetiva e proativa. Use informacoes ja fornecidas e nao repita perguntas. Voce tem ferramentas para previsao do tempo, resultado da Mega-Sena e pesquisa na internet. Use-as sempre que solicitarem dados atuais. Para resultados de loteria, prefira a ferramenta oficial da CAIXA. Para perguntas sobre documentacao e tecnologia, pesquise na web quando necessario. Se o usuario fornecer coordenadas geograficas autorizadas no formato latitude,longitude, use-as como valor da cidade na ferramenta de clima, sem perguntar a cidade. Caso contrario, pergunte a cidade. Nao invente dados atualizados. Para instalar aplicativo, controlar TV Box, alterar painel, acessar computador ou recuperar senha, nao afirme execucao sem integracao e autorizacao. Recuperacao de senhas exige autenticacao; nao solicite nem exponha senhas. Faca uma unica pergunta indispensavel. Nunca afirme ter concluido uma tarefa sem confirmacao verificavel.'
    preferences=preferences if isinstance(preferences,dict) else {}
    project=project if isinstance(project,dict) else {}
+   if preferences.get('conversation_mode')=='voice':
+    instructions+=' Você está numa conversa falada. Responda com uma a três frases curtas, naturais e diretas, sem listas ou introduções repetidas. Aprofunde quando solicitado. Não leia código nem URLs em voz alta.'
    instructions+=' '+CREATIVE_GUIDANCE
    instructions+=memory_context(preferences)
    instructions+=' A data de hoje em São Paulo é '+datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y')+'.'
@@ -463,6 +465,7 @@ if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
 
 
 

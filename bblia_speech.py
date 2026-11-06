@@ -40,11 +40,33 @@ def cached_audio(chunk,voice,fetch):
     return audio
 
 
-def synthesize(text, voice='nova', segments=False):
+def synthesize(text, voice='nova', segments=False, provider='gemini', paid_authorized=False):
     if not isinstance(text, str) or not text.strip() or len(text) > 1600:
         raise ValueError('Envie um texto de até 1600 caracteres.')
     if voice not in ('nova', 'onyx', 'shimmer', 'echo'):
         raise ValueError('Voz inválida.')
+    if provider not in ('gemini', 'openai'):
+        raise ValueError('Provedor inválido.')
+    if provider == 'openai':
+        key = paid_key(paid_authorized)
+        model = os.getenv('BBLIA_TTS_MODEL', 'gpt-4o-mini-tts')
+        def generate():
+            payload = {'model': model, 'voice': voice, 'input': text,
+                       'response_format': 'mp3', 'instructions':
+                       'Fale em português brasileiro com naturalidade, calor e ritmo ágil. Use pausas curtas, sem arrastar palavras. Leia somente o texto.'}
+            req = urllib.request.Request('https://api.openai.com/v1/audio/speech',
+                data=json.dumps(payload).encode(), headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    audio = response.read(2000001)
+                if not audio or len(audio)>2000000: raise SpeechError('Áudio inválido.')
+                return audio
+            except urllib.error.HTTPError as exc:
+                raise SpeechError('Voz OpenAI indisponível (HTTP %s).'%exc.code) from exc
+            except OSError as exc:
+                raise SpeechError('A voz demorou para responder. Tente novamente.') from exc
+        audio = cached_audio(text, 'openai:'+model+':'+voice, generate)
+        return [audio] if segments else audio
     # Small chunks avoid the public speech service's per-request text limit.
     words = re.findall(r'\S+', text)
     chunks, current = [], ''
@@ -75,7 +97,15 @@ def synthesize(text, voice='nova', segments=False):
 
 
 
-def transcribe(data, mime):
+def paid_key(authorized):
+    if authorized is not True:
+        raise ValueError('O uso da OpenAI requer autorização de consumo de créditos.')
+    key = os.getenv('OPENAI_API_KEY', '')
+    if not key: raise SpeechError('OpenAI não configurada no servidor.')
+    return key
+
+
+def transcribe(data, mime, provider='gemini', paid_authorized=False):
     allowed = ('audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav', 'audio/mpeg')
     if not isinstance(mime, str) or mime.split(';')[0] not in allowed:
         raise ValueError('Formato de áudio não suportado.')
@@ -87,6 +117,28 @@ def transcribe(data, mime):
         raise ValueError('Gravação inválida.') from exc
     if not 10 <= len(raw) <= 2000000:
         raise ValueError('Gravação vazia ou muito longa.')
+    if provider not in ('gemini', 'openai'):
+        raise ValueError('Provedor inválido.')
+    if provider == 'openai':
+        key = paid_key(paid_authorized)
+        import uuid
+        boundary = 'bblia'+uuid.uuid4().hex
+        mime = mime.split(';')[0]
+        ext = {'audio/webm':'webm','audio/mp4':'mp4','audio/ogg':'ogg','audio/wav':'wav','audio/mpeg':'mp3'}[mime]
+        body = b''
+        for name, value in {'model':os.getenv('BBLIA_TRANSCRIBE_MODEL','gpt-4o-mini-transcribe'),'language':'pt','response_format':'json'}.items():
+            body += ('--'+boundary+'\r\nContent-Disposition: form-data; name="'+name+'"\r\n\r\n'+value+'\r\n').encode()
+        body += ('--'+boundary+'\r\nContent-Disposition: form-data; name="file"; filename="fala.'+ext+'"\r\nContent-Type: '+mime+'\r\n\r\n').encode()+raw+('\r\n--'+boundary+'--\r\n').encode()
+        req = urllib.request.Request('https://api.openai.com/v1/audio/transcriptions',data=body,
+            headers={'Authorization':'Bearer '+key,'Content-Type':'multipart/form-data; boundary='+boundary})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response: result=json.load(response)
+            if not isinstance(result.get('text'), str): raise SpeechError('Transcrição inválida.')
+            return result['text'].strip()[:8000]
+        except urllib.error.HTTPError as exc:
+            raise SpeechError('Reconhecimento OpenAI indisponível (HTTP %s).'%exc.code) from exc
+        except (OSError, ValueError) as exc:
+            raise SpeechError('Não foi possível reconhecer a fala agora.') from exc
     key = os.getenv('GEMINI_API_KEY', '')
     if not key: raise SpeechError('Reconhecimento de voz não configurado.')
     model = os.getenv('BBLIA_GEMINI_MODEL', 'gemini-3.5-flash-lite')
@@ -116,3 +168,4 @@ def transcribe(data, mime):
             if attempt == 0:
                 time.sleep(0.4); continue
             raise SpeechError('Não foi possível reconhecer a fala agora. Tente novamente.') from exc
+
