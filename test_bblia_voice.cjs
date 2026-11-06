@@ -4,11 +4,11 @@ function harness(){
  const c={console,voiceMode:false,muted:false,voiceToken:0,voiceIndex:0,currentAudio:null,unlockedAudio:null,voiceOptions:[{api:'nova'}],waitingVoice:false,recognition:null,dictation:null,voiceRestartTimer:null,voiceListenTimer:null,
   send:{disabled:false},prompt:{value:''},status:{textContent:''},history:[],feed:{lastElementChild:null},setVoiceUI(){},updateMute(){},selectedVoiceRate:()=>1,selectedVoice:()=>null,
   stopSpeaking(){},speak(){},replyByVoice(){},listenVoice(){},scheduleVoiceListen(){},dictateMessage(){},unlockVoicePlayback(){},clearVoiceTimers(){timers.clear()},localStorage:{setItem(){}},
-  AbortController,Blob,Float32Array,URL:{createObjectURL:()=> 'blob:test',revokeObjectURL(){}},
+  AbortController,Blob,Float32Array,URL:{createObjectURL:blob=>{c.lastAudioBlob=blob;return 'blob:test'},revokeObjectURL(){}},
   setTimeout(fn,delay){const n=++sequence;timers.set(n,{fn,delay});return n},clearTimeout(n){timers.delete(n)},setInterval(){},clearInterval(){},
   navigator:{},document:{getElementById:()=>({checked:true,classList:{remove(){}}})},
   fetch:async(url,options)=>{requests.push({url,data:JSON.parse(options.body)});return{ok:true,blob:async()=>new Blob(['audio'])}},
-  Audio:class{constructor(){audio.push(this)}setAttribute(){}play(){return Promise.resolve()}pause(){}},
+  Audio:class{constructor(){audio.push(this)}setAttribute(){}play(){return Promise.resolve()}pause(){this.paused=true}},
   sendMessage:async()=>{c.received=c.prompt.value},
  };
  class Recognition{start(){c.rec=this;c.starts=(c.starts||0)+1}abort(){this.onend?.()}}
@@ -47,10 +47,10 @@ function harness(){
  };
  joined.c.fetch=async(url,options)=>{joined.requests.push({url,data:JSON.parse(options.body),signal:options.signal});return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({segments:['AQ==','Ag=='],mime:'audio/mpeg'})}};
  joined.c.answer=long;const gapless=joined.run('speak(answer)');await joined.flush();
- assert.equal(started.length,1);assert.equal(started[0].buffer.length,940,'both decoded segments are joined with short codec padding');
+ assert.equal(joined.audio.length,1);const wav=Buffer.from(await joined.c.lastAudioBlob.arrayBuffer());assert.equal(wav.toString('ascii',0,4),'RIFF');assert.equal(wav.readUInt32LE(40)/2,940,'both decoded segments are joined with short codec padding');assert.equal(joined.audio[0].preservesPitch,true,'faster playback keeps the natural timbre');
  assert.equal(joined.requests.length,2,'next response is prepared while current buffer plays');
- started[0].onended({type:'ended'});await joined.flush();assert.equal(started.length,2,'normal ended event advances without replaying the previous sentence');
- joined.run('stopSpeaking()');await gapless;assert.equal(started[1].stopped,true);
+ joined.audio[0].onended({type:'ended'});await joined.flush();assert.equal(joined.audio.length,2,'normal ended event advances without replaying the previous sentence');
+ joined.run('stopSpeaking()');await gapless;assert.equal(joined.audio[1].paused,true);
  // Full interruption: retain onset, stop playback and prefetch, send WAV, then answer.
  const barge=harness();let processor,disconnected=0,trackStopped=0;
  const stream={getAudioTracks:()=>[{readyState:'live'}],getTracks:()=>[{stop(){trackStopped++}}]};

@@ -3,6 +3,11 @@ from unittest.mock import patch
 import bblia_gemini
 
 class GeminiTests(unittest.TestCase):
+ def test_voice_mode_requests_direct_answers_without_shortening_tasks(self):
+  voice=bblia_gemini.instructions({'conversation_mode':'voice'})
+  self.assertIn('uma a três frases',voice)
+  self.assertIn('cumpra o pedido inteiro',voice)
+  self.assertNotIn('Conversa por voz ativa',bblia_gemini.instructions({}))
  def test_missing_key(self):
   with patch.dict(os.environ, {'GEMINI_API_KEY':''}):
    with self.assertRaisesRegex(bblia_gemini.GeminiError,'não configurado'):

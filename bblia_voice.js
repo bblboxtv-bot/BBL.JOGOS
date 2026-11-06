@@ -79,7 +79,8 @@ async function startVoiceBarge(token){
 }
 
 // Default to the user's requested brighter feminine voice and brisker delivery.
-const voicePlaybackRate=1.15;
+let voicePlaybackRate=Number(localStorage.getItem?.('bblia_voice_speed')||1.15);
+if(![1,1.15,1.3].includes(voicePlaybackRate))voicePlaybackRate=1.15;
 if(localStorage.getItem?.('bblia_voice_style')!=='feminina-agil-v1'){
  voiceIndex=0;localStorage.setItem('bblia_voice','0');localStorage.setItem('bblia_voice_style','feminina-agil-v1');
 }
@@ -145,7 +146,7 @@ function deviceSpeech(text,token){
  return new Promise((resolve,reject)=>{
   if(token!==voiceToken)return resolve();
   if(!('speechSynthesis' in window))return reject(Error('Voz indisponível neste aparelho.'));
-  const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';utterance.rate=voicePlaybackRate;utterance.pitch=1.08;
+  const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';utterance.rate=voicePlaybackRate;utterance.pitch=1;
   const selected=selectedVoice();if(selected)utterance.voice=selected;
   let timer;const finish=error=>{clearTimeout(timer);voiceCancelPlayback=null;error?reject(error):resolve()};
   voiceCancelPlayback=()=>finish();utterance.onend=()=>finish();utterance.onerror=e=>finish(Error(e.error||'Falha na voz do aparelho.'));
@@ -154,7 +155,7 @@ function deviceSpeech(text,token){
  });
 }
 async function playSpeechBlob(blob,token){
- const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;audio.defaultPlaybackRate=voicePlaybackRate;audio.playbackRate=voicePlaybackRate;audio.preservesPitch=false;audio.webkitPreservesPitch=false;currentAudio=audio;
+ const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;audio.defaultPlaybackRate=voicePlaybackRate;audio.playbackRate=voicePlaybackRate;audio.preservesPitch=true;audio.webkitPreservesPitch=true;currentAudio=audio;
  try{await new Promise((resolve,reject)=>{
   let timer;const finish=error=>{clearTimeout(timer);audio.onended=audio.onerror=null;voiceCancelPlayback=null;error?reject(error):resolve()};
   voiceCancelPlayback=()=>finish();audio.onended=()=>finish();audio.onerror=()=>finish(Error('Falha ao reproduzir áudio.'));
@@ -223,14 +224,15 @@ async function loadSpeechChunk(text,token){
  }
 }
 function playSpeechBuffer(buffer,token){
- return new Promise((resolve,reject)=>{
-  if(token!==voiceToken)return resolve();
-  const source=voiceContext.createBufferSource();source.buffer=buffer;source.playbackRate.value=voicePlaybackRate;
-  source.connect(voiceContext.destination);
-  const finish=error=>{source.onended=null;source.disconnect();voiceCancelPlayback=null;error?reject(error):resolve()};
-  voiceCancelPlayback=()=>{try{source.stop()}catch(e){}finish()};source.onended=()=>finish();
-  try{source.start()}catch(error){finish(error)}
- });
+ // HTML audio preserves the voice's pitch when accelerating. BufferSource changes it.
+ const channels=buffer.numberOfChannels,length=buffer.length,bytes=new ArrayBuffer(44+length*channels*2),view=new DataView(bytes);
+ const text=(at,value)=>{for(let i=0;i<value.length;i++)view.setUint8(at+i,value.charCodeAt(i))};
+ text(0,'RIFF');view.setUint32(4,bytes.byteLength-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);
+ view.setUint16(20,1,true);view.setUint16(22,channels,true);view.setUint32(24,buffer.sampleRate,true);
+ view.setUint32(28,buffer.sampleRate*channels*2,true);view.setUint16(32,channels*2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,bytes.byteLength-44,true);
+ const samples=Array.from({length:channels},(_,c)=>buffer.getChannelData(c));
+ for(let i=0;i<length;i++)for(let c=0;c<channels;c++)view.setInt16(44+(i*channels+c)*2,Math.max(-1,Math.min(1,samples[c][i]))*32767,true);
+ return playSpeechBlob(new Blob([bytes],{type:'audio/wav'}),token);
 }
 speak=async function(text){
  stopSpeaking();const token=voiceToken;voiceSpeaking=true;const chunks=speechChunks(text);
@@ -353,3 +355,16 @@ dictateMessage=function(){
 send.addEventListener?.('click',()=>unlockVoicePlayback(),{capture:true});
 prompt.addEventListener?.('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey)unlockVoicePlayback()},{capture:true});
 window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime();stopSpeaking()});
+
+if(typeof openSection==='function'){
+ const voiceOpenSection=openSection;
+ openSection=function(section){
+  const result=voiceOpenSection(section);if(section!=='voices')return result;
+  const parent=document.getElementById('modalContent');if(!parent)return result;
+  const label=document.createElement('label');label.className='work-field';label.textContent='Velocidade da fala';
+  const select=document.createElement('select');select.setAttribute('aria-label','Velocidade da fala');
+  for(const [value,name] of [[1,'Normal'],[1.15,'Ágil'],[1.3,'Rápida']]){const option=document.createElement('option');option.value=String(value);option.textContent=name;select.append(option)}
+  select.value=String(voicePlaybackRate);select.onchange=()=>{voicePlaybackRate=Number(select.value);localStorage.setItem('bblia_voice_speed',String(voicePlaybackRate));if(currentAudio)currentAudio.playbackRate=voicePlaybackRate};
+  label.append(select);parent.append(label);return result;
+ };
+}

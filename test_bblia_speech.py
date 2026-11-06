@@ -15,6 +15,16 @@ class Audio(io.BytesIO):
     headers={'Content-Type':'audio/mpeg'}
 
 class SpeechTests(unittest.TestCase):
+    def setUp(self):speech._AUDIO_CACHE.clear()
+
+    def test_repeated_audio_is_cached_and_expires(self):
+        with patch.object(speech.urllib.request,'urlopen',side_effect=lambda *a,**k:Audio(b'ID3audio')) as request,patch.object(speech.time,'monotonic',return_value=1) as clock:
+            self.assertEqual(speech.synthesize('Oi, meu amor.'),speech.synthesize('Oi, meu amor.'))
+            self.assertEqual(request.call_count,1)
+            clock.return_value=302
+            speech.synthesize('Oi, meu amor.')
+            self.assertEqual(request.call_count,2)
+
     def test_long_reply_keeps_all_words_without_paid_requests(self):
         calls=[]
         def upstream(req, **kw):

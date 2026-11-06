@@ -7,12 +7,37 @@ import re
 import time
 import urllib.request
 import urllib.error
+import hashlib
+import threading
+from collections import OrderedDict
 from urllib.parse import urlencode
 from concurrent.futures import ThreadPoolExecutor
 
 
 class SpeechError(Exception):
     pass
+
+_AUDIO_CACHE=OrderedDict()
+_CACHE_LOCK=threading.Lock()
+_CACHE_TTL=300
+_CACHE_MAX_BYTES=4*1024*1024
+
+def cached_audio(chunk,voice,fetch):
+    key=hashlib.sha256((voice+'\0'+chunk).encode()).digest()
+    now=time.monotonic()
+    with _CACHE_LOCK:
+        for old in list(_AUDIO_CACHE):
+            if now-_AUDIO_CACHE[old][0]>_CACHE_TTL:del _AUDIO_CACHE[old]
+        if key in _AUDIO_CACHE:
+            _AUDIO_CACHE.move_to_end(key)
+            return _AUDIO_CACHE[key][1]
+    audio=fetch()
+    with _CACHE_LOCK:
+        if len(audio)<=_CACHE_MAX_BYTES:
+            _AUDIO_CACHE[key]=(time.monotonic(),audio)
+            while len(_AUDIO_CACHE)>64 or sum(len(value[1]) for value in _AUDIO_CACHE.values())>_CACHE_MAX_BYTES:
+                _AUDIO_CACHE.popitem(last=False)
+    return audio
 
 
 def synthesize(text, voice='nova', segments=False):
@@ -31,7 +56,7 @@ def synthesize(text, voice='nova', segments=False):
             chunks.append(current); current = ''
         current = (current + ' ' + word).strip()
     if current: chunks.append(current)
-    def fetch_chunk(chunk):
+    def fetch_uncached(chunk):
         url = 'https://translate.google.com/translate_tts?' + urlencode({
             'ie':'UTF-8','client':'tw-ob','tl':'pt-BR','q':chunk})
         req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
@@ -40,6 +65,7 @@ def synthesize(text, voice='nova', segments=False):
             if 'audio/' not in response.headers.get('Content-Type','') or not part or len(part)>500000:
                 raise SpeechError('Áudio indisponível.')
             return part
+    def fetch_chunk(chunk):return cached_audio(chunk,voice,lambda:fetch_uncached(chunk))
     try:
         with ThreadPoolExecutor(max_workers=min(4,len(chunks))) as pool:
             parts=list(pool.map(fetch_chunk,chunks))

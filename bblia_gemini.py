@@ -167,7 +167,8 @@ def instructions(preferences=None, project=None):
         +CREATIVE_GUIDANCE+memory_context(preferences)+'\nPreferências: '
         +json.dumps({k:str(preferences.get(k,''))[:2000] for k in ('name','instructions','detail')},ensure_ascii=False)
         +'\nProjeto: '+json.dumps({k:str(project.get(k,''))[:6000] for k in ('name','instructions')},ensure_ascii=False)
-        +'\nData em São Paulo: '+datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y'))
+        +'\nData em São Paulo: '+datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y')
+        +('\nConversa por voz ativa: fale em português brasileiro natural, com frases diretas. Para perguntas simples, responda em uma a três frases, sem preâmbulos repetidos, listas longas ou ler símbolos de formatação. Se o usuário pedir detalhes, uma leitura completa ou uma tarefa extensa, cumpra o pedido inteiro; não reduza arquivos ou requisitos para encurtar a fala.' if preferences.get('conversation_mode')=='voice' else ''))
 
 
 def responder(messages, model=None, preferences=None, project=None, cookie='', weather=None, lottery=None):

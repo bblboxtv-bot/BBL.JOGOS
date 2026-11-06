@@ -19,5 +19,10 @@ assert.equal(vm.runInContext('cloudGeneration',ctx),2);
  await vm.runInContext('cloudSync(false)',ctx);
  assert.equal(vm.runInContext('workspace.chats[0].id',ctx),'guest');
  assert.match(vm.runInContext('cloudError',ctx),/conta mudou/);
+ // A voice conversation waiting for the next sentence can sync; an answer in flight cannot.
+ vm.runInContext(`workspace.active='guest';workspace.projects=[];workspace.preferences={};cloudRunning=false;cloudReady=true;voiceMode=true;waitingVoice=false;voiceSpeaking=false;cloudRender=()=>{};persist=async()=>{};syncCalls=0;accountRequest=async()=>{syncCalls++;return{user:{id:'account-b'},workspace:structuredClone(workspace),saved_at:new Date().toISOString()}};`,ctx);
+ await vm.runInContext('cloudSync(false)',ctx);assert.equal(vm.runInContext('syncCalls',ctx),1,'voice listening must not block cross-device sync');
+ vm.runInContext('waitingVoice=true',ctx);await vm.runInContext('cloudSync(false)',ctx);
+ assert.equal(vm.runInContext('syncCalls',ctx),1,'sync waits while a response is being processed');
  console.log('PASS account storage isolation, deletion tracking, guest privacy, stale-account response rejection');
 })().catch(e=>{console.error(e);process.exitCode=1});
