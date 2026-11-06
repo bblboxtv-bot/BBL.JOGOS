@@ -85,7 +85,12 @@ if(typeof sendMessage==='function'){
  };
 }
 function wantsComputerWork(text){
- if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim()))return false;
+ const normalized=String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+ if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(normalized))return false;
+ const fileAction=/\b(liste|listar|lista|leia|ler|le|li|mostre|mostrar|veja|ver|abra|abrir|procure|procurar|encontre|buscar|busque|verifique)\b/.test(normalized);
+ const localFolder=/\b(pastas?|diretorios?)\b/.test(normalized);
+ const localFile=/\barquivos?\b/.test(normalized)&&(/\b(meus?|minhas?|documentos?|downloads?|desktop|computador|pc)\b/.test(normalized)||/[a-z]:[\\/]/.test(normalized));
+ if(fileAction&&(localFolder||localFile))return true;
  return /computador|tv\s*box|tvbox|\badb\b|\bno pc\b|\busb\b|\bpowershell\b|\bterminal\b/i.test(text)
   ||/(instale|instalar|desinstale|desinstalar|congele|congelar|descongele|compile|compilar|execute|executar)\b/i.test(text);
 }

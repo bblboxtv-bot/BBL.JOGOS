@@ -8,6 +8,12 @@ assert.equal(run("wantsComputerWork('Instale o APK na minha TV Box pelo USB')"),
 assert.equal(run("wantsComputerWork('Confira meu computador')"),true);
 assert.equal(run("wantsComputerWork('Como instalar um APK?')"),false);
 assert.equal(run("wantsComputerWork('Crie um painel de PDV')"),false);
+for(const text of ['Liste as pastas da minha pasta Documentos','Li as pasta nas pasta do meu documento','Leia os arquivos dos meus documentos','Mostre as pastas','Abra minha pasta Downloads']){
+ context.fileIntent=text;assert.equal(run('wantsComputerWork(fileIntent)'),true,text);
+}
+for(const text of ['Como listar pastas?','Leia o arquivo anexado','Crie um documento Word']){
+ context.fileIntent=text;assert.equal(run('wantsComputerWork(fileIntent)'),false,text);
+}
 const devices=JSON.parse(run("JSON.stringify(computerDevices({content:[{type:'text',text:'Desktop Commander devices\\n\\n1. DESKTOP-TEST\\n   Status: Online\\n   ID: 9cbcf202-1832-4211-8678-c8bd1431063f\\n   Last seen: now'}]}))"));
 assert.equal(devices[0].name,'DESKTOP-TEST');assert.equal(devices[0].online,true);
 run("computerCache={access_token:'secret-private',device_id:'selected',expires_at:Date.now()+3600000}");
