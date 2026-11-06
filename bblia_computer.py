@@ -41,6 +41,16 @@ class ComputerError(Exception):
         self.status = status
 
 
+def configured_client():
+    client_id=os.getenv('BBLIA_COMMANDER_CLIENT_ID','').strip()
+    if not client_id:return None
+    method=os.getenv('BBLIA_COMMANDER_CLIENT_AUTH_METHOD','none').strip()
+    secret=os.getenv('BBLIA_COMMANDER_CLIENT_SECRET','')
+    if method not in ('none','client_secret_basic','client_secret_post') or (method!='none' and not secret):
+        raise ComputerError('O cadastro permanente do Commander está incompleto.',503)
+    return {'client_id':client_id,'client_secret':secret,'token_endpoint_auth_method':method}
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -125,9 +135,10 @@ def oauth_start(data):
     if not isinstance(state, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', state) or not isinstance(challenge, str) or not re.fullmatch(r'[A-Za-z0-9_-]{43}', challenge):
         raise ComputerError('Pareamento inválido. Inicie novamente na BBLIA.')
     metadata = oauth_metadata()
-    if not metadata.get('registration_endpoint'):
+    permanent=configured_client()
+    if not permanent and not metadata.get('registration_endpoint'):
         raise ComputerError('O Commander exige registrar a BBLIA como cliente antes de conectar. O cadastro automático não está disponível.', 503)
-    client = json_request(metadata['registration_endpoint'], {
+    client = permanent or json_request(metadata['registration_endpoint'], {
         'client_name': 'BBLIA', 'redirect_uris': [REDIRECT_URI],
         'grant_types': ['authorization_code', 'refresh_token'], 'response_types': ['code'],
         'token_endpoint_auth_method': 'none'})
@@ -136,7 +147,7 @@ def oauth_start(data):
         raise ComputerError('O Commander não registrou a BBLIA para autenticação.', 502)
     method = client.get('token_endpoint_auth_method', 'none')
     binding = None
-    if method != 'none':
+    if method != 'none' and not permanent:
         secret = client.get('client_secret')
         if method not in ('client_secret_post', 'client_secret_basic') or not isinstance(secret, str) or not secret:
             raise ComputerError('O serviço exige uma configuração adicional de autenticação para a BBLIA.', 503)
@@ -184,7 +195,11 @@ def oauth_token(data, refresh=False):
         params.update(grant_type='authorization_code', code=code, code_verifier=verifier, redirect_uri=REDIRECT_URI)
     basic_auth = None
     binding = data.get('client_binding')
-    if binding:
+    permanent=configured_client()
+    if permanent and client_id==permanent['client_id']:
+        if permanent['token_endpoint_auth_method']=='client_secret_post':params['client_secret']=permanent['client_secret']
+        elif permanent['token_endpoint_auth_method']=='client_secret_basic':basic_auth=(client_id,permanent['client_secret'])
+    elif binding:
         with _LOCK:
             private = _CLIENTS.get(binding)
         if not private or private['client_id'] != client_id or private['expires'] < time.time():

@@ -114,9 +114,10 @@ function computerDevices(result){
  }
  return devices;
 }
-async function showComputerConnection(){
+async function showComputerConnection(errorMessage=''){
  const connection=await readComputer();
  const el=modalContent('Computador e TV Box',connection?.device_id?'Computador selecionado: '+(connection.device_name||connection.device_id):'Conecte sua própria conta Commander para a BBLIA usar os arquivos e o terminal do seu computador.');
+ if(typeof errorMessage==='string'&&errorMessage){const error=document.createElement('p');error.setAttribute('role','alert');error.textContent=errorMessage;el.append(error)}
  const note=document.createElement('p');note.className='muted';note.textContent='O Commander precisa estar online no computador. Para a TV Box, conecte o USB e autorize a depuração no aparelho. A BBLIA usa as permissões disponíveis na sua conta e no sistema.';el.append(note);
  button(el,connection?'Reconectar conta Commander':'Conectar minha conta Commander',connectCommander);
  if(!connection)return;
@@ -170,7 +171,7 @@ async function finishComputerOAuth(){
    if(devices.length===1){await saveComputer({...await readComputer(),device_id:devices[0].id,device_name:devices[0].name});notify('Computador conectado: '+devices[0].name)}
   }catch(e){notify(e.message)}
   if(!await resumeQueuedComputerTask())showComputerConnection();
- }catch(error){notify(error.message);showComputerConnection()}
+ }catch(error){notify(error.message);showComputerConnection(error.message)}
 }
 async function initComputerConnection(){
  while(!workspaceReady)await workSleep(100);

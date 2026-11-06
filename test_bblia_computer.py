@@ -12,6 +12,21 @@ import bblia_agent as agent
 
 
 class ComputerTests(unittest.TestCase):
+    def test_permanent_registration_survives_process_restart(self):
+        metadata={'authorization_endpoint':'https://auth.desktopcommander.app/authorize',
+                  'token_endpoint':'https://auth.desktopcommander.app/token','resource':pc.MCP_URL}
+        with patch.dict(os.environ,{'BBLIA_COMMANDER_CLIENT_ID':'permanent-client','BBLIA_COMMANDER_CLIENT_SECRET':'private-secret','BBLIA_COMMANDER_CLIENT_AUTH_METHOD':'client_secret_basic'}),patch.object(pc,'_CLIENTS',{}),patch.object(pc,'oauth_metadata',return_value=metadata):
+            with patch.object(pc,'json_request') as request:
+                started=pc.oauth_start({'state':'s'*43,'code_challenge':'c'*43})
+                request.assert_not_called()
+            self.assertIsNone(started['client_binding'])
+            self.assertNotIn('private-secret',json.dumps(started))
+            with patch.object(pc,'json_request',return_value={'access_token':'access','refresh_token':'refresh'}) as request:
+                pc.oauth_token({'client_id':'permanent-client','code':'auth-code','code_verifier':'v'*43})
+                self.assertEqual(request.call_args.kwargs['basic_auth'],('permanent-client','private-secret'))
+                pc.oauth_token({'client_id':'permanent-client','refresh_token':'refresh'},refresh=True)
+                self.assertEqual(request.call_args.kwargs['basic_auth'],('permanent-client','private-secret'))
+
     def test_confidential_client_secret_stays_on_server(self):
         metadata={'authorization_endpoint':'https://auth.desktopcommander.app/authorize',
                   'token_endpoint':'https://auth.desktopcommander.app/token',
