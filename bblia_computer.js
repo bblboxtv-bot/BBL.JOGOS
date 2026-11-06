@@ -50,6 +50,38 @@ async function computerConnection(){
 async function computerReady(){
  try{const c=await computerConnection();return !!(c?.access_token&&c.device_id)}catch(error){notify(error.message);return false}
 }
+function computerConnectIntent(text){
+ const clean=String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+ return /^(?:(?:bblia|meu amor)[, ]+)?(?:conecta|conecte|conectar|reconecta|reconecte|reconectar|entre|entrar|acesse|acessar|conecte-se|conecta-se)\s+(?:(?:ai|agora|automaticamente)\s+)?(?:(?:a|ao|no|na|com|em)\s+)?(?:(?:o|meu|minha)\s+)*(?:computador|pc|desktop|commander)(?:\s+(?:pra mim|para mim|por favor|agora|automaticamente))*[.!?]*$/.test(clean);
+}
+async function connectRequestedComputer(){
+ let connection;
+ try{connection=await computerConnection()}catch(error){notify(error.message);return showComputerConnection()}
+ if(!connection?.access_token){notify('Abrindo a autorização inicial do seu computador...');return connectCommander()}
+ try{
+  notify('Conferindo a conexão com seu computador...');
+  const devices=computerDevices((await computerPost('devices',{access_token:connection.access_token})).result);
+  const selected=connection.device_id?devices.find(d=>d.id===connection.device_id):devices.length===1?devices[0]:null;
+  if(!selected){notify('Selecione o computador que deseja usar.');return showComputerConnection()}
+  await saveComputer({...connection,device_id:selected.id,device_name:selected.name});
+  const message=selected.online?'Conectada ao computador '+selected.name+'. Pode dizer o que deseja fazer.':'O computador '+selected.name+' está offline. Abra o Commander nele para continuar.';
+  notify(message);add('assistant',message);history.push({role:'assistant',content:message});await saveChat();
+  if(typeof replyByVoice==='function')await replyByVoice(message);
+  return selected.online;
+ }catch(error){notify(error.message);return showComputerConnection()}
+}
+// An explicit chat/voice command starts pairing once; future commands reuse and refresh it.
+if(typeof sendMessage==='function'){
+ const computerSendMessage=sendMessage;
+ sendMessage=async function(){
+  const text=prompt.value.trim();
+  if(!computerConnectIntent(text))return computerSendMessage();
+  if(!workspaceReady||send.disabled)return;
+  prompt.value='';add('user',text);history.push({role:'user',content:text});await saveChat();
+  send.disabled=true;
+  try{return await connectRequestedComputer()}finally{send.disabled=false;waitingVoice=false;if(voiceMode)scheduleVoiceListen(300)}
+ };
+}
 function wantsComputerWork(text){
  if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim()))return false;
  return /computador|tv\s*box|tvbox|\badb\b|\bno pc\b|\busb\b|\bpowershell\b|\bterminal\b/i.test(text)
@@ -143,5 +175,9 @@ async function initComputerConnection(){
  const nav=document.querySelector('.panel');const entry=document.createElement('button');entry.className='navbtn';entry.textContent='🖥️ Computador e TV Box';entry.onclick=showComputerConnection;
  nav.insertBefore(entry,nav.querySelector('.navbtn'));
  if(location.pathname==='/computer-callback')await finishComputerOAuth();
+ else if(new URLSearchParams(location.search).get('connect_computer')==='1'){
+  const url=new URL(location.href);url.searchParams.delete('connect_computer');window.history.replaceState(null,'',url.pathname+url.search+url.hash);
+  await connectRequestedComputer();
+ }
 }
 initComputerConnection();

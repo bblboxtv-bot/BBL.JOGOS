@@ -17,5 +17,22 @@ run("computerCache={access_token:'secret-private',device_id:'selected',expires_a
  assert.equal(received.computer_connection.access_token,'secret-private');
  assert.equal(payload.computer_connection,undefined,'saved payload must not gain credentials');
  assert.equal(JSON.stringify(payload).includes('secret-private'),false);
+ for(const text of ['Conecte ao meu computador','Conecta no meu PC','BBLIA, entre no meu computador por favor','Acesse meu computador','Reconecte ao Commander']){
+  context.intent=text;assert.equal(run('computerConnectIntent(intent)'),true,text);
+ }
+ for(const text of ['Como conectar ao meu computador?','Conecte ao meu computador e apague a pasta','Leia os arquivos do computador','Conecte a TV Box']){
+  context.intent=text;assert.equal(run('computerConnectIntent(intent)'),false,text);
+ }
+ context.history=[];context.add=()=>{};context.saveChat=async()=>{};let paired=0;
+ context.pair=()=>{paired++};
+ run("connectCommander=async()=>pair();saveComputer=async value=>{computerCache=value};computerPost=async()=>({result:{devices:[{id:'selected',name:'MEU-PC',online:true}]}})");
+ await run('connectRequestedComputer()');await run('connectRequestedComputer()');
+ assert.equal(paired,0,'saved connection is reused on repeated commands');
+ assert.ok(context.history.at(-1).content.includes('MEU-PC'));
+ assert.equal(JSON.stringify(context.history).includes('secret-private'),false,'tokens never enter the conversation');
+ run('computerCache=null');await run('connectRequestedComputer()');assert.equal(paired,1,'first use opens the account authorization');
+ context.show=()=>{context.shown=true};
+ run("showComputerConnection=async()=>show();computerCache={access_token:'saved',device_id:'selected',expires_at:Date.now()+3600000};computerPost=async()=>({result:{devices:[{id:'selected',name:'MEU-PC',online:false},{id:'other',name:'OUTRO-PC',online:true}]}})");
+ assert.equal(await run('connectRequestedComputer()'),false);assert.equal(run('computerCache.device_id'),'selected','offline selected computer never silently switches to another');
  console.log('PASS: computer intent routing, device parsing, private request credentials excluded from saved payload');
 })().catch(e=>{console.error(e);process.exitCode=1});
