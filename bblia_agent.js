@@ -235,7 +235,18 @@ sendMessage=async function(){
   let useComputer=false;
   if(explicitComputer||wantsAndroidBuild(text)){
    useComputer=typeof computerReady==='function'&&await computerReady();
-   if(!useComputer){if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);const reason=typeof computerConnectionIssue==='string'&&computerConnectionIssue?computerConnectionIssue:'Pedido salvo. Conecte o computador para compilar e entregar o APK ou executar a tarefa.';notify(reason);if(typeof showComputerConnection==='function')await showComputerConnection(reason);return}
+   if(!useComputer){
+    if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);
+    const reason=typeof computerConnectionIssue==='string'&&computerConnectionIssue?computerConnectionIssue:'Pedido salvo. Conecte o computador para compilar e entregar o APK ou executar a tarefa.';
+    notify(reason);
+    if(/offline/i.test(reason)){
+     prompt.value='';add('user',text);history.push({role:'user',content:text});
+     add('assistant',reason);history.push({role:'assistant',content:reason});await saveChat();
+     waitingVoice=false;
+     if(typeof replyByVoice==='function')await replyByVoice(reason);
+    }else if(typeof showComputerConnection==='function')await showComputerConnection(reason);
+    return;
+   }
   }
   return runAutonomousWork(text,selected,{useComputer});
  }
