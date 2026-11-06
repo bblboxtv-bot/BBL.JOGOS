@@ -55,7 +55,7 @@ async function startVoiceBarge(token){
   if(!active()||!voiceContext?.createScriptProcessor)return;
   stopVoiceBarge();
   const source=voiceContext.createMediaStreamSource(voiceCapture),processor=voiceContext.createScriptProcessor(2048,1,1),sink=voiceContext.createGain();sink.gain.value=0;
-  const state={source,processor,sink,generation,rate:voiceContext.sampleRate,parts:[],elapsed:0,voiced:0,quiet:0,triggered:false};voiceBarge=state;
+  const state={source,processor,sink,generation,rate:voiceContext.sampleRate,parts:[],elapsed:0,levels:[],quiet:0,triggered:false};voiceBarge=state;
   processor.onaudioprocess=event=>{
    if(voiceBarge!==state||generation!==voiceGeneration||!voiceMode)return;
    const samples=new Float32Array(event.inputBuffer.getChannelData(0)),duration=samples.length/state.rate;
@@ -63,8 +63,9 @@ async function startVoiceBarge(token){
    state.parts.push(samples);
    if(!state.triggered){
     while(state.parts.length>Math.ceil(state.rate*.45/samples.length))state.parts.shift();
-    state.voiced=rms>.018?state.voiced+duration:0;
-    if(state.voiced>=.16){
+    state.levels=state.levels.filter(t=>state.elapsed-t<.45);
+    if(rms>.008)state.levels.push(state.elapsed);
+    if(state.levels.length*duration>=.12){
      state.triggered=true;state.elapsed=0;clearVoiceTimers();stopSpeaking(true);
      waitingVoice=true;status.textContent='Pode falar. Estou ouvindo você.';
     }

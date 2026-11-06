@@ -68,7 +68,7 @@ function harness(){
  const frame=value=>processor.onaudioprocess?.({inputBuffer:{getChannelData:()=>new Float32Array(2048).fill(value)}});
  for(let i=0;i<5;i++)frame(0);frame(.2);frame(0);
  assert.equal(barge.run('voiceSpeaking'),true,'a single impact must not interrupt');
- for(let i=0;i<4;i++)frame(.1);
+ for(let i=0;i<4;i++){frame(.009);frame(0)}
  assert.equal(barge.run('voiceSpeaking'),false,'sustained speech immediately stops the answer');
  assert.ok(barge.requests.filter(r=>r.url==='/api/voice').at(-1).signal.aborted,'all prefetched speech is cancelled');
  assert.equal(barge.run('voiceBarge.triggered'),true);barge.run('scheduleVoiceListen()');
