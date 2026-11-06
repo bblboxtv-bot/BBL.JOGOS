@@ -43,7 +43,7 @@ class WorkbenchTests(unittest.TestCase):
         try:
             with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('urllib.request.urlopen',side_effect=fake):
                 for _ in range(4):
-                    request=urllib.request.Request(url+'/api/chat',data=json.dumps({'messages':[{'role':'user','content':'Crie código'}],'preferences':{'web':False},'project':{'name':'BBL Launcher','instructions':'Android TV'}}).encode(),headers={'Content-Type':'application/json'})
+                    request=urllib.request.Request(url+'/api/chat',data=json.dumps({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Crie código'}],'preferences':{'web':False},'project':{'name':'BBL Launcher','instructions':'Android TV'}}).encode(),headers={'Content-Type':'application/json'})
                     data=json.load(urllib.request.urlopen(request))
                     self.assertEqual(data['artifacts'][0]['name'],'MainActivity.kt')
                 self.assertEqual(json.load(urllib.request.urlopen(url+'/api/integrations'))['chat_daily_limit'],None)

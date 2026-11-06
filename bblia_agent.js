@@ -2,6 +2,13 @@
 let activeWork=null;
 const workSleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
+async function saveRequestedNickname(text){
+ const match=String(text).match(/(?:me\s+(?:cham[ea]|chamar)|(?:pode|quero que voc[êe]|quero que ela)\s+me\s+cham(?:e|ar))\s+de\s+["“']?([^.!?\n,"”']{1,60})/i);
+ if(!match)return;
+ const name=match[1].replace(/\s+(?:a partir de agora|daqui pra frente|por favor|aqui no chat).*$/i,'').trim();
+ if(!name||name.split(/\s+/).length>6)return;
+ workspace.preferences.name=name;await persist();
+}
 function wantsSelfImprovement(text){
  const change=/(melhor|alter|corrig|corrij|consert|ajust|atualiz|adicione|adicionar|inclua|incluir|mude|mudar|tire|tirar|remov|implemen|implement|aperfeiço|aperfeico)/i.test(text);
  const self=/\bbblia\b|voc[êe]\s+(?:mesm[ao]|pr[óo]pri[ao])|(?:sua|seu)\s+(?:pr[óo]pri[ao]\s+)?(?:tela|interface|c[óo]digo|aplicativo|funcionamento|menu|voz|microfone)|em\s+voc[êe]/i.test(text);
@@ -130,6 +137,7 @@ async function finishWork(bubble,pending){
   paintResponse(bubble,answer,artifacts,data.sources||[]);
   history.push({role:'assistant',content:answer,artifacts,sources:data.sources||[]});
   delete chat.workJob;await saveChat();notify(data.status==='completed'?'Trabalho entregue':'Arquivos parciais disponíveis');
+  await replyByVoice(answer);
   return {status:data.status,summary:answer,files:artifacts.map(f=>f.name)};
  }catch(error){
   bubble.textContent='Não foi possível acompanhar o trabalho: '+error.message;
@@ -141,6 +149,7 @@ async function finishWork(bubble,pending){
   activeWork=null;send.disabled=false;waitingVoice=false;
   if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();
   feed.scrollTop=feed.scrollHeight;
+  if(voiceMode&&document.getElementById('auto').checked)scheduleVoiceListen(500);
  }
 }
 async function runAutonomousWork(text,selected=[],options={}){
@@ -182,7 +191,7 @@ async function resumeAutonomousWork(){
 }
 const agentSendMessage=sendMessage;
 sendMessage=async function(){
- const text=prompt.value.trim();const project=currentProject();
+ const text=prompt.value.trim();await saveRequestedNickname(text);const project=currentProject();
  const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
  const explicitComputer=text&&typeof wantsComputerWork==='function'&&wantsComputerWork(text)&&!wantsSelfImprovement(text);
  if(text&&(explicitComputer||wantsAutonomousWork(text,selected))){

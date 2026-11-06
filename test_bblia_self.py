@@ -37,7 +37,7 @@ class SelfTests(unittest.TestCase):
                 return result(2,[('editar_codigo_bblia',{'nome':'bblia_work.js','trecho_atual':"'use strict';",'trecho_novo':"'use strict';\n// test change"})])
             return result(3,[('finalizar_trabalho',{'resumo':'Melhoria preparada.','tipo':'codigo','limitacoes':[]})])
         with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch.object(agent,'request_model',side_effect=model):
-            job=agent.start_work({'messages':[{'role':'user','content':'Melhore a própria BBLIA'}], 'self_improvement':True,'use_computer':True})
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Melhore a própria BBLIA'}], 'self_improvement':True,'use_computer':True})
             for _ in range(200):
                 data=agent.get_work(job['id'])
                 if data['status'] not in ('processing','cancelling'):break

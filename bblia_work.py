@@ -146,16 +146,18 @@ def execute_work_tool(name, args, artifacts):
 
 
 def integration_status():
-    api = bool(os.getenv('OPENAI_API_KEY'))
-    return {'version': 'computer-connect-20261104', 'chat_daily_limit': None, 'items': [
+    from bblia_gemini import configured
+    api = configured()
+    paid = bool(os.getenv('OPENAI_API_KEY'))
+    return {'version': 'integrations-gemini-20261106', 'chat_daily_limit': None, 'items': [
         {'id': 'memory', 'name': 'Memória e histórico', 'state': 'configured', 'detail': 'Memórias editáveis em Configurações, busca no conteúdo e continuação de conversas preservando o original. Sem login, dados salvos neste navegador. Com Minha conta e sincronização, conversas, projetos e preferências podem ser sincronizados no espaço privado da conta Google.'},
         {'id': 'self', 'name': 'Melhorar a própria BBLIA', 'state': 'configured' if api else 'missing', 'detail': 'Peça alterações na própria BBLIA por texto ou voz. Ela lê o código atual e prepara os arquivos alterados. Publicação depende de conexão de manutenção autenticada pelo proprietário.'},
         {'id': 'agent', 'name': 'Fazer por mim', 'state': 'configured' if api else 'missing', 'detail': 'Analisa referências, cria e revisa arquivos em etapas e entrega projeto e prévia web. Publicação, compilação e conexões externas dependem de integrações próprias.'},
         {'id': 'web', 'name': 'Pesquisa na internet', 'state': 'configured' if api else 'missing', 'detail': 'Pesquisa pelo serviço de IA; pode ser desligada nas configurações.'},
-        {'id': 'files', 'name': 'APKs, fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Analisa APKs de até 100 MB: pacote, permissões, componentes, recursos e layouts disponíveis. Fotos/PDFs de até 5 MB; até 4 anexos.'},
+        {'id': 'files', 'name': 'ZIP, APKs, fotos, PDFs e código', 'state': 'configured' if api else 'missing', 'detail': 'Analisa ZIPs de até 100 MB (lista arquivos e lê textos, sem executar) e APKs de até 100 MB: pacote, permissões, componentes, recursos e layouts disponíveis. Fotos/PDFs de até 5 MB; até 4 anexos.'},
         {'id': 'artifacts', 'name': 'Criar arquivos e projetos', 'state': 'configured' if api else 'missing', 'detail': 'Arquivos de código e texto para baixar. Com computador conectado, compilação de APK Java simples pelo SDK/JDK instalado; Kotlin e bibliotecas externas requerem Gradle compatível.'},
         {'id': 'github', 'name': 'GitHub público', 'state': 'configured', 'detail': 'Leitura de arquivos públicos. Repositórios privados e publicação ainda não conectados.'},
-        {'id': 'image', 'name': 'Criar e editar imagens', 'state': 'configured' if api else 'missing', 'detail': 'Usa a conexão de imagens do servidor; disponibilidade depende da conta.'},
+        {'id': 'image', 'name': 'Criar e editar imagens', 'state': 'external' if paid else 'missing', 'detail': 'Imagens OpenAI exigem autorização explícita de uso pago; nunca são acionadas automaticamente pelo Gemini.'},
         {'id': 'video', 'name': 'Vídeos gratuitos', 'state': 'external', 'detail': ('LTX gratuito com conta Hugging Face conectada. Cerca de 4 segundos sem áudio; aceita imagem de referência e segue a cota externa.' if os.getenv('HF_TOKEN', '').strip() else 'LTX gratuito com opção de animar uma imagem. Sem conta conectada, a cota anônima do servidor é compartilhada e pode se esgotar; conexão com conta gratuita ainda necessária.')},
         {'id': 'weather', 'name': 'Previsão do tempo', 'state': 'configured', 'detail': 'Open-Meteo.'},
         {'id': 'computer', 'name': 'Computador e TV Box', 'state': 'missing', 'detail': 'Conexão própria com o Commander disponível no menu Computador e TV Box. Exige autorizar sua conta na BBLIA e selecionar o aparelho.'},

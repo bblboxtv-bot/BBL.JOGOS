@@ -13,3 +13,12 @@ assert.equal(run("wantsAutonomousWork('Crie um launcher Android',[])"),true);
 const files=JSON.parse(run("JSON.stringify(projectArtifacts('p',{id:'b'}))"));
 assert.deepEqual(files,[{name:'index.html',content:'new'},{name:'app.js',content:'keep'}]);
 console.log('PASS: image-to-PDV routing, followup edits, media/chat separation, latest project files and unchanged file preservation');
+
+context.persist=async()=>{context.saved=true};
+(async()=>{
+ await run("saveRequestedNickname('Me chame de gostosão, por favor.')");
+ assert.equal(context.workspace.preferences.name,'gostosão');assert.equal(context.saved,true);
+ await run("saveRequestedNickname('O arquivo se chama de exemplo.zip')");
+ assert.equal(context.workspace.preferences.name,'gostosão');
+ console.log('PASS: explicit nickname saved in preferences and unrelated text ignored');
+})().catch(e=>{console.error(e);process.exitCode=1});

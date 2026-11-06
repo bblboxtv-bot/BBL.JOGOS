@@ -42,7 +42,7 @@ class AgentTests(unittest.TestCase):
             return answers.pop(0)
         image='data:image/png;base64,'+base64.b64encode(b'fixture-image').decode()
         with patch.dict(os.environ,{'OPENAI_API_KEY':'secret'}),patch.object(agent,'request_model',side_effect=model):
-            job=agent.start_work({'messages':[{'role':'user','content':'Crie um PDV igual à foto'}],
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Crie um PDV igual à foto'}],
                                  'attachments':[{'name':'PDV.png','type':'image','data':image}],
                                  'preferences':{'web':True}})
             result=self.wait(job['id'])
@@ -58,7 +58,7 @@ class AgentTests(unittest.TestCase):
 
     def test_plan_only_answer_does_not_claim_completion(self):
         with patch.dict(os.environ,{'OPENAI_API_KEY':'secret'}),patch.object(agent,'request_model',return_value={'id':'plan','output':[]}):
-            job=agent.start_work({'messages':[{'role':'user','content':'Crie um sistema'}]})
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Crie um sistema'}]})
             result=self.wait(job['id'])
         self.assertEqual(result['status'],'partial')
         self.assertEqual(result['artifacts'],[])
@@ -79,7 +79,7 @@ class AgentTests(unittest.TestCase):
             entered.set();release.wait(2)
             return response(1,[('criar_arquivo',{'nome':'new.txt','conteudo':'must not be applied'})])
         with patch.dict(os.environ,{'OPENAI_API_KEY':'secret'}),patch.object(agent,'request_model',side_effect=model):
-            job=agent.start_work({'messages':[{'role':'user','content':'Continue'}],
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Continue'}],
                                  'files':[{'name':'seed.txt','content':'preserve'}]})
             self.assertTrue(entered.wait(1))
             self.assertNotIn('artifacts',agent.get_work(job['id']))

@@ -48,7 +48,7 @@ class RuntimeTests(unittest.TestCase):
   answers=[response(1,[('testar_javascript',tests),('finalizar_trabalho',finish)]),response(2,[('criar_arquivo',{'nome':'logic.js','conteudo':'function add(a,b){return a+b}'}),('testar_javascript',tests),('finalizar_trabalho',finish)])]
   def model(payload,key):seen.append(payload);return answers.pop(0)
   with patch.dict(os.environ,{'OPENAI_API_KEY':'not-exposed'}),patch.object(a,'request_model',side_effect=model):
-   started=a.start_work({'messages':[{'role':'user','content':'Corrija a soma e teste'}],'files':[{'name':k,'content':v} for k,v in files.items()]})
+   started=a.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Corrija a soma e teste'}],'files':[{'name':k,'content':v} for k,v in files.items()]})
    for _ in range(100):
     result=a.get_work(started['id'])
     if result['status'] not in ('processing','cancelling'):break

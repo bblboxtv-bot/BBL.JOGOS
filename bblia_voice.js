@@ -57,7 +57,7 @@ stopSpeaking=function(){
  if('speechSynthesis' in window)speechSynthesis.cancel();
  voiceSpeaking=false;
 };
-function speechChunks(text,max=550){
+function speechChunks(text,max=260){
  const clean=String(text).replace(/```[\s\S]*?```/g,' Trecho de código disponível na tela. ').replace(/https?:\/\/\S+/g,'').replace(/[*#`]/g,'').trim();
  const parts=[];let rest=clean;
  while(rest.length>max){let cut=Math.max(rest.lastIndexOf('. ',max),rest.lastIndexOf('! ',max),rest.lastIndexOf('? ',max));if(cut<max/3)cut=rest.lastIndexOf(' ',max);if(cut<1)cut=max;else cut++;parts.push(rest.slice(0,cut));rest=rest.slice(cut).trim()}

@@ -192,14 +192,20 @@ finalize com finalizar_trabalho. A validação de estrutura é estática. Para p
 
 def run_job(job, safe, data, files):
     try:
-        key = os.environ['OPENAI_API_KEY']
+        provider = data.get('provider', 'gemini')
+        key = os.getenv('OPENAI_API_KEY', '') if provider == 'openai' else None
+        gemini = None
+        if provider == 'gemini':
+            from bblia_gemini import Session
+            gemini = Session()
         preferences = data.get('preferences') if isinstance(data.get('preferences'), dict) else {}
         context = {'project': data.get('project', {}), 'preferences': {k: str(preferences.get(k, ''))[:2000]
                    for k in ('name', 'instructions', 'detail')}}
         instructions = INSTRUCTIONS+'\nContexto informado pelo usuário: '+json.dumps(context, ensure_ascii=False)[:14000]
         instructions += '\n'+CREATIVE_GUIDANCE
         instructions += memory_context(preferences)
-        tools = agent_tools(preferences.get('web', True))
+        from bblia_work import requests_web_lookup
+        tools = agent_tools(preferences.get('web', True) and (provider == 'openai' or requests_web_lookup(safe)))
         self_improvement = data.get('self_improvement') is True
         originals = {}
         if self_improvement:
@@ -243,7 +249,12 @@ def run_job(job, safe, data, files):
             if previous:
                 payload = {'model': payload['model'], 'instructions': instructions, 'previous_response_id': previous,
                            'input': inputs, 'tools': tools, 'max_output_tokens': 8000}
-            result = request_model(payload, key)
+            if gemini:
+                from bblia_gemini import GeminiError
+                try:result = gemini.respond(payload)
+                except GeminiError as exc:raise WorkError(str(exc),503) from exc
+            else:
+                result = request_model(payload, key)
             if job['cancelled']:
                 break
             previous = result['id']
@@ -384,8 +395,16 @@ def run_job(job, safe, data, files):
 
 def start_work(data):
     safe = prepare_messages(data)
-    if not os.getenv('OPENAI_API_KEY'):
-        raise WorkError('A conexão de IA não está configurada.', 503)
+    provider = data.get('provider', 'gemini')
+    if provider not in ('gemini','openai'):
+        raise WorkError('Provedor de IA inválido.')
+    from bblia_gemini import configured
+    if provider == 'gemini' and not configured():
+        raise WorkError('Gemini não configurado no servidor. Nenhum serviço pago foi acionado.', 503)
+    if provider == 'openai' and data.get('paid_authorized') is not True:
+        raise WorkError('O uso pago da OpenAI exige autorização explícita nesta tarefa.', 400)
+    if provider == 'openai' and not os.getenv('OPENAI_API_KEY'):
+        raise WorkError('OpenAI não configurada no servidor.', 503)
     files = {}
     seeds = data.get('files', [])
     if not isinstance(seeds, list) or len(seeds) > MAX_FILES:

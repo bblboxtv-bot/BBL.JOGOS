@@ -7,6 +7,7 @@ import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
 from bblia_apk import inspect_apk, MAX_APK, APK_SLOTS
+from bblia_zip import inspect_zip, MAX_ZIP, ZIP_SLOTS
 import tempfile
 from bblia_computer import oauth_start, oauth_token, list_computers, ComputerError
 from bblia_agent import start_work, get_work, cancel_work, WorkError
@@ -126,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'voice-free-20261105','source':os.getenv('RENDER_GIT_COMMIT','local')})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'integrations-gemini-20261106','source':os.getenv('RENDER_GIT_COMMIT','local')})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -178,7 +179,8 @@ class Handler(BaseHTTPRequestHandler):
   try:
    length=int(self.headers.get('Content-Length','0'))
    if length>500:return self.reply(413,{'error':'Pedido invalido'})
-   if length:self.rfile.read(length)
+   data=json.loads(self.rfile.read(length)) if length else {}
+   if data.get('paid_authorized') is not True:return self.reply(400,{'error':'Voz OpenAI paga exige autorização explícita. Use a conversa contínua gratuita.'})
    session={'session':{'type':'realtime','model':'gpt-realtime','instructions':'Voce e BBLIA, assistente de voz brasileira. Fale em português brasileiro de forma natural e objetiva, concluindo toda a resposta. Espere a pessoa terminar de falar. Ignore barulhos de máquinas, impactos, vento, conversas de fundo e sons sem fala clara dirigida a você. Não responda com confirmações como entendi a ruídos. Se não houver fala compreensível, permaneça em silêncio aguardando. Não encerre a conversa por silêncio; o usuário encerra pelo botão.','audio':{'input':{'noise_reduction':{'type':'near_field'},'transcription':{'model':'gpt-4o-mini-transcribe','language':'pt'},'turn_detection':{'type':'server_vad','threshold':0.75,'prefix_padding_ms':300,'silence_duration_ms':1000,'create_response':True,'interrupt_response':False}},'output':{'voice':'marin'}}}}
    session['session']['instructions']+=' Você tem a ferramenta criar_midia para criar imagens, fotos, logomarcas e vídeos a partir de descrições. Quando pedirem uma criação, chame essa ferramenta. Aguarde seu resultado para confirmar sucesso. Não diga que não pode gerar imagem. Vídeos usam o LTX Video gratuito com fila e limite. Caso a ferramenta retorne erro ou cota atingida, explique sem afirmar que criou o vídeo. Nunca ofereça contratar um plano pago. Fotos e arquivos podem ser anexados na conversa de texto para análise. Edição de fotos está disponível no botão Editar foto após anexar.'
    session['session']['instructions']+=' '+CREATIVE_GUIDANCE+' Não repreenda o usuário por palavrões, gírias ou desabafos. Responda ao pedido com naturalidade.'
@@ -200,6 +202,7 @@ class Handler(BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):return self.reply(400,{'error':'Pedido inválido'})
    ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
+   if data.get('kind','image')=='image' and data.get('paid_authorized') is not True:return self.reply(400,{'error':'A geração de imagem OpenAI é paga e não foi acionada. Autorize o uso pago para este pedido ou use uma conexão gratuita de imagens.'})
    job=start_job(data.get('kind','image'),data.get('prompt',''),ip, data.get('reference'))
    return self.reply(202,job)
   except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
@@ -230,9 +233,34 @@ class Handler(BaseHTTPRequestHandler):
   finally:
    self.connection.settimeout(previous_timeout)
    APK_SLOTS.release()
+ def zip_inspect(self):
+  self.close_connection=True
+  try:length=int(self.headers.get('Content-Length','0'))
+  except ValueError:return self.reply(400,{'error':'Tamanho do ZIP inválido.'})
+  if not 22<=length<=MAX_ZIP:return self.reply(413,{'error':'Envie um ZIP de até 100 MB.'})
+  if not ZIP_SLOTS.acquire(blocking=False):return self.reply(429,{'error':'Outra análise de ZIP está em andamento. Aguarde um instante.'})
+  previous_timeout=self.connection.gettimeout()
+  try:
+   self.connection.settimeout(60)
+   with tempfile.TemporaryFile() as upload:
+    remaining=length
+    while remaining:
+     chunk=self.rfile.read(min(1024*1024,remaining))
+     if not chunk:raise ValueError('O envio do ZIP foi interrompido.')
+     upload.write(chunk);remaining-=len(chunk)
+    from urllib.parse import unquote
+    name=unquote(self.headers.get('X-Filename','arquivo.zip')).replace('\\','/').split('/')[-1][:120]
+    attachment=inspect_zip(upload,name)
+   return self.reply(200,{'attachment':attachment})
+  except ValueError as exc:return self.reply(400,{'error':str(exc)})
+  except (TimeoutError,OSError):return self.reply(408,{'error':'O envio do ZIP demorou demais. Tente novamente.'})
+  finally:
+   self.connection.settimeout(previous_timeout)
+   ZIP_SLOTS.release()
  def do_POST(self):
   if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
+  if self.path=='/api/zip/analyze':return self.zip_inspect()
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
    try:
     length=int(self.headers.get('Content-Length','0'))
@@ -272,8 +300,9 @@ class Handler(BaseHTTPRequestHandler):
    try:
     if provider=='gemini':
      from bblia_gemini import responder, GeminiError
-     try:return self.reply(200,responder(safe))
+     try:return self.reply(200,responder(safe,preferences=data.get("preferences"),project=data.get("project"),cookie=self.headers.get("Cookie",""),weather=weather_for,lottery=mega_sena))
      except GeminiError as exc:return self.reply(503,{'error':str(exc)})
+    if data.get('paid_authorized') is not True:return self.reply(400,{'error':'O uso pago da OpenAI exige autorização explícita nesta tarefa.'})
     key=os.getenv('OPENAI_API_KEY','')
     if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})
     self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))

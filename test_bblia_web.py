@@ -25,7 +25,7 @@ class WebTests(unittest.TestCase):
         threading.Thread(target=server.serve_forever,daemon=True).start()
         try:
             with patch.dict(os.environ,{'OPENAI_API_KEY':'test'}),patch('urllib.request.urlopen',side_effect=fake):
-                body={'messages':[{'role':'user','content':'Pesquise na web a documentação oficial do Android.'}],'preferences':{'web':web}}
+                body={'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Pesquise na web a documentação oficial do Android.'}],'preferences':{'web':web}}
                 req=urllib.request.Request('http://127.0.0.1:'+str(server.server_port)+'/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
                 try:
                     with original(req) as r:return r.status,json.load(r),captured

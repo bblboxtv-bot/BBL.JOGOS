@@ -8,6 +8,7 @@ import time
 import urllib.request
 import urllib.error
 from urllib.parse import urlencode
+from concurrent.futures import ThreadPoolExecutor
 
 
 class SpeechError(Exception):
@@ -30,20 +31,21 @@ def synthesize(text, voice='nova'):
             chunks.append(current); current = ''
         current = (current + ' ' + word).strip()
     if current: chunks.append(current)
-    audio = bytearray()
+    def fetch_chunk(chunk):
+        url = 'https://translate.google.com/translate_tts?' + urlencode({
+            'ie':'UTF-8','client':'tw-ob','tl':'pt-BR','q':chunk})
+        req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as response:
+            part = response.read(500001)
+            if 'audio/' not in response.headers.get('Content-Type','') or not part or len(part)>500000:
+                raise SpeechError('Áudio indisponível.')
+            return part
     try:
-        for chunk in chunks:
-            url = 'https://translate.google.com/translate_tts?' + urlencode({
-                'ie': 'UTF-8', 'client': 'tw-ob', 'tl': 'pt-BR', 'q': chunk})
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=12) as response:
-                part = response.read(500001)
-                if 'audio/' not in response.headers.get('Content-Type', '') or not part or len(part) > 500000:
-                    raise SpeechError('Áudio indisponível.')
-                audio.extend(part)
-    except (OSError, TimeoutError) as exc:
+        with ThreadPoolExecutor(max_workers=min(4,len(chunks))) as pool:
+            return b''.join(pool.map(fetch_chunk,chunks))
+    except (OSError,TimeoutError) as exc:
         raise SpeechError('Não foi possível gerar a voz agora.') from exc
-    return bytes(audio)
+
 
 
 def transcribe(data, mime):

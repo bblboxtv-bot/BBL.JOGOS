@@ -82,7 +82,7 @@ class ComputerTests(unittest.TestCase):
         seen=[]
         def model(payload,key):seen.append(payload);return replies.pop(0)
         with patch.dict(os.environ,{'OPENAI_API_KEY':'server-key'}),patch.object(agent,'CommanderClient',FakeComputer),patch.object(agent,'request_model',side_effect=model):
-            job=agent.start_work({'messages':[{'role':'user','content':'Confira meu computador'}],
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Confira meu computador'}],
                                  'use_computer':True,'computer_connection':{'access_token':'private-access','device_id':'selected-device'}})
             for _ in range(200):
                 result=agent.get_work(job['id'])
