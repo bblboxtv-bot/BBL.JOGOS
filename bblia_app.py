@@ -127,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'integrations-gemini-20261106','source':os.getenv('RENDER_GIT_COMMIT','local')})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'voice-continuity-20261106','source':os.getenv('RENDER_GIT_COMMIT','local')})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -333,6 +333,9 @@ class Handler(BaseHTTPRequestHandler):
    if not isinstance(payload,dict):raise ValueError('Pedido inválido.')
    acquired=TTS_IN_FLIGHT.acquire(blocking=False)
    if not acquired:return self.reply(429,{'error':'Voz ocupada. Tente novamente.'})
+   if payload.get('segments') is True:
+    parts=synthesize(payload.get('text'),payload.get('voice','nova'),segments=True)
+    return self.reply(200,{'segments':[base64.b64encode(part).decode() for part in parts],'mime':'audio/mpeg'})
    audio=synthesize(payload.get('text'),payload.get('voice','nova'))
    self.send_response(200);self.send_header('Content-Type','audio/mpeg');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(audio)));self.end_headers();self.wfile.write(audio)
   except (ValueError,TypeError):return self.reply(400,{'error':'Texto ou voz inválidos.'})

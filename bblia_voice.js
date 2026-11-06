@@ -3,6 +3,7 @@
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
+const voicePendingRequests=new Set();
 let voiceAnalyser=null,voiceSource=null,voiceSink=null,voiceOneShot=false;
 
 // Default to the user's requested brighter feminine voice and brisker delivery.
@@ -13,6 +14,7 @@ if(localStorage.getItem?.('bblia_voice_style')!=='feminina-agil-v1'){
 
 // A valid silent clip unlocks the reusable player during the user's tap.
 unlockVoicePlayback=function(){
+ prepareVoiceContext();
  if(unlockedAudio)return;
  const player=new Audio();player.setAttribute('playsinline','');player.preload='auto';
  player.src='data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';unlockedAudio=player;
@@ -42,6 +44,7 @@ function createVoiceTurnDetector(){
 function endRealtime(){
  voiceGeneration++;clearVoiceTimers();clearInterval(voiceMeterTimer);voiceMeterTimer=null;
  voiceRequest?.abort();voiceRequest=null;
+ for(const controller of voicePendingRequests)controller.abort();voicePendingRequests.clear();
  if(recognition){recognition.onend=recognition.onresult=recognition.onerror=null;try{recognition.abort()}catch(e){}recognition=null}
  const recorder=voiceRecorder;voiceRecorder=null;
  if(recorder){recorder.onstop=null;if(recorder.state!=='inactive')try{recorder.stop()}catch(e){}}
@@ -84,20 +87,91 @@ async function playSpeechBlob(blob,token){
   if(token!==voiceToken)return finish();audio.play().catch(finish);
  })}finally{URL.revokeObjectURL(url);if(currentAudio===audio)currentAudio=null}
 }
+// Keep speech intact while shortening only long silence, including codec padding.
+function speechRanges(buffer){
+ const channels=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i));
+ const rate=buffer.sampleRate,length=buffer.length,threshold=0.001;
+ const loud=i=>channels.some(channel=>Math.abs(channel[i])>threshold);
+ let first=0,last=length-1;while(first<length&&!loud(first))first++;
+ if(first===length)return [[0,length]];
+ while(last>first&&!loud(last))last--;
+ const start=Math.max(0,first-Math.round(rate*0.025)),end=Math.min(length,last+Math.round(rate*0.045)+1);
+ const ranges=[];let from=start,i=first;
+ while(i<end){
+  if(loud(i)){i++;continue}
+  const quiet=i;while(i<end&&!loud(i))i++;
+  if(i-quiet>rate*0.45&&i<end){
+   const keep=Math.round(rate*0.09);ranges.push([from,quiet+keep]);from=i-keep;
+  }
+ }
+ if(end>from)ranges.push([from,end]);return ranges;
+}
+async function decodeSpeechSegments(segments){
+ prepareVoiceContext();const context=voiceContext;
+ if(!context?.decodeAudioData||context.state!=='running')return null;
+ const decoded=[];
+ for(const encoded of segments){
+  const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+  decoded.push(await context.decodeAudioData(bytes.buffer));
+ }
+ const ranges=decoded.map(buffer=>speechRanges(buffer));
+ const frames=ranges.reduce((total,parts)=>total+parts.reduce((n,[a,b])=>n+b-a,0),0);
+ if(!frames)return null;
+ const channels=Math.max(...decoded.map(buffer=>buffer.numberOfChannels));
+ const joined=context.createBuffer(channels,frames,context.sampleRate);
+ for(let channel=0;channel<channels;channel++){
+  let offset=0;const target=joined.getChannelData(channel);
+  decoded.forEach((buffer,index)=>{const samples=buffer.getChannelData(Math.min(channel,buffer.numberOfChannels-1));
+   for(const [a,b] of ranges[index]){target.set(samples.subarray(a,b),offset);offset+=b-a}
+  });
+ }
+ return joined;
+}
+async function loadSpeechChunk(text,token){
+ const controller=new AbortController();voicePendingRequests.add(controller);voiceRequest=controller;
+ const timeout=setTimeout(()=>controller.abort(),16000);
+ try{
+  const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({text,voice:voiceOptions[voiceIndex]?.api||'nova',segments:true}),signal:controller.signal});
+  if(!response.ok)throw Error('Serviço de voz indisponível.');
+  if(token!==voiceToken)return {};
+  if(response.headers?.get('Content-Type')?.includes('application/json')){
+   const data=await response.json();if(!Array.isArray(data.segments)||!data.segments.length)throw Error('Áudio vazio.');
+   const buffer=await decodeSpeechSegments(data.segments).catch(()=>null);
+   if(buffer)return {buffer};
+   const parts=data.segments.map(encoded=>Uint8Array.from(atob(encoded),c=>c.charCodeAt(0)));
+   return {blob:new Blob(parts,{type:data.mime||'audio/mpeg'})};
+  }
+  const blob=await response.blob();if(!blob.size)throw Error('Áudio vazio.');return {blob};
+ }catch(error){return {error}}finally{
+  clearTimeout(timeout);voicePendingRequests.delete(controller);if(voiceRequest===controller)voiceRequest=null;
+ }
+}
+function playSpeechBuffer(buffer,token){
+ return new Promise((resolve,reject)=>{
+  if(token!==voiceToken)return resolve();
+  const source=voiceContext.createBufferSource();source.buffer=buffer;source.playbackRate.value=voicePlaybackRate;
+  source.connect(voiceContext.destination);
+  const finish=error=>{source.onended=null;source.disconnect();voiceCancelPlayback=null;error?reject(error):resolve()};
+  voiceCancelPlayback=()=>{try{source.stop()}catch(e){}finish()};source.onended=()=>finish();
+  try{source.start()}catch(error){finish(error)}
+ });
+}
 speak=async function(text){
- stopSpeaking();const token=voiceToken;voiceSpeaking=true;
- try{for(const chunk of speechChunks(text)){
-  if(token!==voiceToken)return;
-  const controller=new AbortController();voiceRequest=controller;
-  const timeout=setTimeout(()=>controller.abort(),25000);
-  let blob;
-  try{const response=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:chunk,voice:voiceOptions[voiceIndex]?.api||'nova'}),signal:controller.signal});if(!response.ok)throw Error('Serviço de voz indisponível.');blob=await response.blob();if(!blob.size)throw Error('Áudio vazio.')}
-  catch(e){if(token!==voiceToken)return;await deviceSpeech(chunk,token);continue}
-  finally{clearTimeout(timeout);if(voiceRequest===controller)voiceRequest=null}
-  if(token!==voiceToken)return;
-  try{await playSpeechBlob(blob,token)}catch(e){if(token!==voiceToken)return;await deviceSpeech(chunk,token)}
+ stopSpeaking();const token=voiceToken;voiceSpeaking=true;const chunks=speechChunks(text);
+ // Prepare the next chunk during playback, never after a sentence has finished.
+ let pending=chunks.length?loadSpeechChunk(chunks[0],token):null;
+ try{for(let index=0;index<chunks.length;index++){
+  const ready=await pending;if(token!==voiceToken)return;
+  pending=index+1<chunks.length?loadSpeechChunk(chunks[index+1],token):null;
+  if(ready.error){await deviceSpeech(chunks[index],token);continue}
+  try{
+   if(ready.buffer)await playSpeechBuffer(ready.buffer,token);
+   else if(ready.blob)await playSpeechBlob(ready.blob,token);
+  }catch(error){if(token!==voiceToken)return;await deviceSpeech(chunks[index],token)}
  }}finally{if(token===voiceToken)voiceSpeaking=false}
 };
+
 function offerVoiceReplay(answer){
  const bubble=feed.lastElementChild;if(!bubble)return;
  bubble.querySelector?.('.voice-replay')?.remove();
@@ -190,7 +264,7 @@ listenVoice=function(){
 function toggleVoice(){
  if(voiceMode){voiceMode=false;endRealtime();stopSpeaking();status.textContent='Conversa por voz encerrada';setVoiceUI();return}
  if(send.disabled){status.textContent='Aguarde a resposta atual terminar.';return}
- unlockVoicePlayback();stopSpeaking();endRealtime();
+ stopSpeaking();endRealtime();unlockVoicePlayback();
  if(dictation){dictation.onend=null;try{dictation.abort()}catch(e){}dictation=null;document.getElementById('dictate').classList.remove('listening')}
  voiceMode=true;document.getElementById('auto').checked=true;if(androidVoiceCapture()||!window.SpeechRecognition&&!window.webkitSpeechRecognition)prepareVoiceContext();muted=false;localStorage.setItem('bblia_muted','0');updateMute();setVoiceUI();listenVoice();
 };
@@ -198,6 +272,8 @@ const originalDictateMessage=dictateMessage;
 dictateMessage=function(){
  if(voiceMode)return;
  if(window.SpeechRecognition||window.webkitSpeechRecognition)return originalDictateMessage();
- unlockVoicePlayback();endRealtime();prepareVoiceContext();voiceOneShot=true;captureVoice();
+ endRealtime();unlockVoicePlayback();prepareVoiceContext();voiceOneShot=true;captureVoice();
 };
+send.addEventListener?.('click',()=>unlockVoicePlayback(),{capture:true});
+prompt.addEventListener?.('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey)unlockVoicePlayback()},{capture:true});
 window.addEventListener('pagehide',()=>{voiceMode=false;endRealtime();stopSpeaking()});

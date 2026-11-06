@@ -30,6 +30,18 @@ class SpeechTests(unittest.TestCase):
         self.assertTrue(result.startswith(b'ID3'))
         self.assertGreater(len(calls),1)
 
+    def test_segment_mode_preserves_order_and_legacy_mp3(self):
+        def upstream(req, **kw):
+            text=parse_qs(urlsplit(req.full_url).query)['q'][0]
+            return Audio(('ID3:'+text).encode())
+        text=' '.join('palavra'+str(i) for i in range(70))
+        with patch.object(speech.urllib.request,'urlopen',side_effect=upstream):
+            parts=speech.synthesize(text,segments=True)
+            combined=speech.synthesize(text)
+        self.assertGreater(len(parts),1)
+        self.assertEqual(b''.join(parts),combined)
+        self.assertEqual(' '.join(p.decode()[4:] for p in parts),text)
+
     def test_invalid_upstream_audio_is_not_reported_as_success(self):
         response=Audio(b'<html>blocked</html>');response.headers={'Content-Type':'text/html'}
         with patch.object(speech.urllib.request,'urlopen',return_value=response):
@@ -77,6 +89,12 @@ class SpeechTests(unittest.TestCase):
                 req=urllib.request.Request(url+'/api/voice',data=json.dumps({'text':'Olá'}).encode())
                 with urllib.request.urlopen(req) as response:
                     self.assertEqual(response.status,200);self.assertEqual(response.headers['Content-Type'],'audio/mpeg');self.assertEqual(response.read(),b'ID3audio')
+            with patch('bblia_app.synthesize',return_value=[b'ID3first',b'ID3next']):
+                req=urllib.request.Request(url+'/api/voice',data=json.dumps({'text':'Primeira frase. Segunda frase.','segments':True}).encode())
+                with urllib.request.urlopen(req) as response:
+                    self.assertTrue(response.headers['Content-Type'].startswith('application/json'))
+                    payload=json.load(response)
+                    self.assertEqual([base64.b64decode(p) for p in payload['segments']],[b'ID3first',b'ID3next'])
             with patch('bblia_app.transcribe',return_value='Teste de microfone'):
                 req=urllib.request.Request(url+'/api/transcribe',data=json.dumps({'audio':'encoded','mime':'audio/webm'}).encode())
                 with urllib.request.urlopen(req) as response:self.assertEqual(json.load(response)['text'],'Teste de microfone')

@@ -22,11 +22,35 @@ function harness(){
  h.c.rec.onresult({results:[[{transcript:'Bom dia'}]]});await h.flush();assert.equal(h.c.received,'Bom dia','a final transcript must answer even when the browser never emits onend');h.c.rec.onend();await h.flush();
  h.run('toggleVoice()');assert.equal(h.c.voiceMode,false);
  const s=harness();const long='Uma resposta longa para ouvir por completo. '.repeat(30)+'FIM.';
- s.c.answer=long;const pending=s.run('speak(answer)');await s.flush();assert.equal(s.requests.length,1);
+ s.c.answer=long;const pending=s.run('speak(answer)');await s.flush();assert.equal(s.requests.length,2,'next chunk must load before current playback ends');
  s.run('voiceMode=true;scheduleVoiceListen()');assert.equal([...s.timers.values()].some(t=>t.delay===300),false,'no microphone restart while speaking');
  for(let i=0;i<10;i++){const player=s.audio.at(-1);if(!player?.onended)break;player.onended();await s.flush()}
  await pending;assert.ok(s.requests.at(-1).data.text.includes('FIM.'));assert.ok(s.requests.length>1);assert.equal(s.requests.some(r=>/openai|realtime/.test(r.url)),false);
- const cancel=harness();cancel.c.answer=long;const stopped=cancel.run('speak(answer)');await cancel.flush();cancel.run('stopSpeaking()');await stopped;assert.equal(cancel.requests.length,1);
+ const cancel=harness();cancel.c.answer=long;const stopped=cancel.run('speak(answer)');await cancel.flush();cancel.run('stopSpeaking()');await stopped;assert.equal(cancel.requests.length,2,'cancellation prevents additional loads beyond the prefetched chunk');
+ // Simulate speech separated by 800ms of silence: retain all speech, reduce only silence.
+ const trim=harness();const samples=new Float32Array(2000);samples.fill(.1,200,600);samples.fill(.1,1400,1800);
+ trim.c.fixture={numberOfChannels:1,sampleRate:1000,length:samples.length,getChannelData:()=>samples};
+ const ranges=trim.run('speechRanges(fixture)');
+ assert.equal(ranges.reduce((n,[a,b])=>n+b-a,0),1050);
+ assert.equal(ranges.reduce((n,[a,b])=>n+samples.slice(a,b).filter(x=>x!==0).length,0),800,'no voiced samples are removed');
+ const natural=new Float32Array(1200);natural.fill(.1,100,500);natural.fill(.1,700,1100);
+ trim.c.fixture={numberOfChannels:1,sampleRate:1000,length:natural.length,getChannelData:()=>natural};
+ assert.equal(trim.run('speechRanges(fixture).length'),1,'normal 200ms punctuation pauses remain intact');
+ // Exercise decoded segment assembly and actual AudioBufferSource playback path.
+ const joined=harness();const started=[];joined.c.atob=encoded=>Buffer.from(encoded,'base64').toString('binary');
+ joined.c.window.AudioContext=class{
+  constructor(){this.state='running';this.sampleRate=1000;this.destination={}}
+  resume(){return Promise.resolve()}close(){return Promise.resolve()}
+  async decodeAudioData(){const samples=new Float32Array(800);samples.fill(.1,200,600);return {numberOfChannels:1,sampleRate:1000,length:800,getChannelData:()=>samples}}
+  createBuffer(channels,length,rate){const samples=Array.from({length:channels},()=>new Float32Array(length));return {numberOfChannels:channels,sampleRate:rate,length,getChannelData:i=>samples[i]}}
+  createBufferSource(){const source={playbackRate:{},connect(){},disconnect(){},start(){started.push(source)},stop(){source.stopped=true}};return source}
+ };
+ joined.c.fetch=async(url,options)=>{joined.requests.push({url,data:JSON.parse(options.body),signal:options.signal});return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({segments:['AQ==','Ag=='],mime:'audio/mpeg'})}};
+ joined.c.answer=long;const gapless=joined.run('speak(answer)');await joined.flush();
+ assert.equal(started.length,1);assert.equal(started[0].buffer.length,940,'both decoded segments are joined with short codec padding');
+ assert.equal(joined.requests.length,2,'next response is prepared while current buffer plays');
+ started[0].onended({type:'ended'});await joined.flush();assert.equal(started.length,2,'normal ended event advances without replaying the previous sentence');
+ joined.run('stopSpeaking()');await gapless;assert.equal(started[1].stopped,true);
  const denied=harness();denied.run('toggleVoice()');denied.c.rec.onerror({error:'not-allowed'});assert.equal(denied.c.voiceMode,false);assert.match(denied.c.status.textContent,/Autorize/);
  // A late microphone permission response after stopping must release the stream.
  const stale=harness();let release;stale.c.navigator.mediaDevices={getUserMedia:()=>new Promise(r=>release=r)};stale.c.window.MediaRecorder=class{};
@@ -41,7 +65,7 @@ function harness(){
  const click=quiet.run('createVoiceTurnDetector()');click.sample(0.1,100);assert.equal(click.sample(0,1700).heard,false,'one impact is not speech');
  const android=harness();android.c.window.BBLAndroid={dictate(){}};
  let requested=false;android.c.navigator.mediaDevices={getUserMedia:()=>{requested=true;return new Promise(()=>{})}};android.c.window.MediaRecorder=class{};
- let contextCreated=false,resumed=false;android.c.window.AudioContext=class{constructor(){contextCreated=true;this.state='suspended'}resume(){resumed=true;return Promise.resolve()}};
+ let contextCreated=false,resumed=false;android.c.window.AudioContext=class{constructor(){contextCreated=true;this.state='suspended'}resume(){resumed=true;this.state='running';return Promise.resolve()}close(){return Promise.resolve()}};
  android.run('toggleVoice()');assert.equal(android.c.starts,undefined,'WebView speech interface must not be used even if exposed');assert.equal(contextCreated,true);assert.equal(resumed,true);assert.equal(requested,true);
  h.events.pagehide();assert.equal(h.c.voiceMode,false);
  console.log('PASS full speech, no paid calls, playback gating, stop cancellation, permission denial, stale microphone cleanup, page exit');

@@ -15,7 +15,7 @@ class SpeechError(Exception):
     pass
 
 
-def synthesize(text, voice='nova'):
+def synthesize(text, voice='nova', segments=False):
     if not isinstance(text, str) or not text.strip() or len(text) > 1600:
         raise ValueError('Envie um texto de até 1600 caracteres.')
     if voice not in ('nova', 'onyx', 'shimmer', 'echo'):
@@ -42,7 +42,8 @@ def synthesize(text, voice='nova'):
             return part
     try:
         with ThreadPoolExecutor(max_workers=min(4,len(chunks))) as pool:
-            return b''.join(pool.map(fetch_chunk,chunks))
+            parts=list(pool.map(fetch_chunk,chunks))
+            return parts if segments else b''.join(parts)
     except (OSError,TimeoutError) as exc:
         raise SpeechError('Não foi possível gerar a voz agora.') from exc
 
