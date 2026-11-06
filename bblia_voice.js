@@ -336,6 +336,8 @@ listenVoice=function(){
  const recover=()=>{if(generation!==voiceGeneration||recognition!==rec||!voiceMode||delivered)return;recognition=null;rec.onend=null;try{rec.abort()}catch(e){}voiceUseRecorder=true;captureVoice()};
  const deliver=()=>{if(delivered||generation!==voiceGeneration||!voiceMode||!spoken)return;delivered=true;clearTimeout(voiceListenTimer);if(rec===recognition)recognition=null;try{rec.stop?.()}catch(e){}sendRecognizedVoice(spoken)};
  rec.lang='pt-BR';rec.continuous=false;rec.interimResults=false;
+ rec.onspeechstart=()=>{clearTimeout(voiceListenTimer);voiceListenTimer=setTimeout(recover,35000)};
+ rec.onspeechend=()=>{clearTimeout(voiceListenTimer);voiceListenTimer=setTimeout(recover,5000)};
  rec.onresult=e=>{if(generation!==voiceGeneration)return;spoken=Array.from(e.results).filter(r=>r.isFinal!==false).map(r=>r[0].transcript).join(' ').trim();if(spoken){waitingVoice=true;deliver()}};
  rec.onerror=e=>{if(generation!==voiceGeneration)return;if(e.error==='not-allowed'){voiceFailure(e);return}if(e.error!=='no-speech'&&e.error!=='aborted'){voiceUseRecorder=true;fallback=true}};
  rec.onend=()=>{clearTimeout(voiceListenTimer);if(rec===recognition)recognition=null;if(generation!==voiceGeneration||!voiceMode)return;if(delivered)return;if(spoken)deliver();else if(fallback)captureVoice();else if(document.getElementById('auto').checked)scheduleVoiceListen(500)};

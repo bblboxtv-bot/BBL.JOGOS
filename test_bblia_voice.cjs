@@ -18,6 +18,15 @@ function harness(){
  return {c,run,flush,timers,requests,audio,events};
 }
 (async()=>{
+ const stalled=harness();stalled.run('toggleVoice()');
+ const firstWatch=[...stalled.timers.values()].find(t=>t.delay===10000);assert.ok(firstWatch,'recognition has a startup watchdog');
+ stalled.c.rec.onspeechstart();assert.ok([...stalled.timers.values()].some(t=>t.delay===35000),'long speech is allowed');
+ assert.equal([...stalled.timers.values()].some(t=>t.delay===10000),false,'startup deadline must not cut a spoken sentence');
+ stalled.c.rec.onspeechend();assert.ok([...stalled.timers.values()].some(t=>t.delay===5000),'missing final result recovers');
+ [...stalled.timers.values()].find(t=>t.delay===5000).fn();await stalled.flush();
+ assert.equal(stalled.run('voiceUseRecorder'),true,'stalled browser recognition switches to recording');
+ const paid=harness();paid.c.aiRequestOptions=()=>({provider:'openai',paid_authorized:true});
+ const voice=paid.run('speak("Teste")');await paid.flush();assert.equal(paid.requests[0].data.provider,'openai');assert.equal(paid.requests[0].data.paid_authorized,true);paid.run('stopSpeaking()');await voice;
  const h=harness();h.run('muted=true;toggleVoice()');assert.equal(h.c.muted,false);assert.equal(h.c.starts,1);assert.equal(h.requests.length,0,'starting voice does not call OpenAI realtime');
  h.c.rec.onresult({results:[[{transcript:'Bom dia'}]]});await h.flush();assert.equal(h.c.received,'Bom dia','a final transcript must answer even when the browser never emits onend');h.c.rec.onend();await h.flush();
  h.run('toggleVoice()');assert.equal(h.c.voiceMode,false);
@@ -98,3 +107,4 @@ function harness(){
  h.events.pagehide();assert.equal(h.c.voiceMode,false);
  console.log('PASS full speech, no paid calls, playback gating, stop cancellation, permission denial, stale microphone cleanup, page exit');
 })().catch(e=>{console.error(e);process.exitCode=1});
+
