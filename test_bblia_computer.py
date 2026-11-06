@@ -12,6 +12,25 @@ import bblia_agent as agent
 
 
 class ComputerTests(unittest.TestCase):
+    def test_background_start_is_not_completion(self):
+        client=pc.CommanderClient({'access_token':'test','device_id':'selected'})
+        client.definitions={name:{'inputSchema':{'properties':{}}} for name in ('start_process','read_process_output','get_tool_result')}
+        with patch.object(client,'rpc',return_value={'content':[{'type':'text','text':'Process started with PID 1234. Process is running.'}]}):
+            client.call('start_process',{'command':'test'})
+        self.assertFalse(client.actions[-1]['confirmed'])
+        self.assertEqual(client.pending_processes,{1234})
+        with patch.object(client,'rpc',return_value={'content':[{'type':'text','text':'Process completed with exit code 0'}]}):
+            client.call('read_process_output',{'pid':1234})
+        self.assertTrue(client.actions[-1]['confirmed'])
+        self.assertFalse(client.pending_processes)
+        with patch.object(client,'rpc',return_value={'content':[],'structuredContent':{'call_id':'call-1234567890123456','status':'running'}}):
+            client.call('start_process',{'command':'test'})
+        self.assertFalse(client.actions[-1]['confirmed'])
+        self.assertTrue(client.pending_calls)
+        with patch.object(client,'rpc',return_value={'content':[],'structuredContent':{'async_call':{'call_id':'call-1234567890123456','status':'completed'}}}):
+            client.call('get_tool_result',{'call_id':'call-1234567890123456'})
+        self.assertFalse(client.pending_calls)
+
     def test_permanent_registration_survives_process_restart(self):
         metadata={'authorization_endpoint':'https://auth.desktopcommander.app/authorize',
                   'token_endpoint':'https://auth.desktopcommander.app/token','resource':pc.MCP_URL}
@@ -108,6 +127,29 @@ class ComputerTests(unittest.TestCase):
         self.assertEqual(result['artifacts'],[])
         self.assertNotIn('private-access',json.dumps(seen))
         self.assertNotIn('private-access',json.dumps(result))
+
+    def test_agent_must_wait_for_pending_process_before_finishing(self):
+        class FakeComputer:
+            def __init__(self,connection):self.actions=[];self.pending_processes=set();self.pending_calls=set()
+            def initialize(self):return self
+            def model_tools(self):return []
+            def call(self,name,args):
+                if name=='start_process':self.pending_processes.add(123);self.actions.append({'tool':name,'confirmed':False});return {'pending':True,'pid':123}
+                self.pending_processes.clear();self.actions.append({'tool':name,'confirmed':True});return {'exit_code':0}
+        def output(name,args):return {'id':str(time.monotonic()),'output':[{'type':'function_call','name':name,'call_id':str(time.monotonic()),'arguments':json.dumps(args)}]}
+        final={'tipo':'computador','resumo':'Teste concluído','limitacoes':[]}
+        replies=[output('pc_start_process',{}),output('finalizar_trabalho',final),output('pc_read_process_output',{'pid':123}),output('finalizar_trabalho',final)]
+        observed=[]
+        def model(payload,key):observed.append(json.dumps(payload));return replies.pop(0)
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'key'}),patch.object(agent,'CommanderClient',FakeComputer),patch.object(agent,'request_model',side_effect=model):
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Teste meu computador'}],'use_computer':True,'computer_connection':{'access_token':'test'}})
+            for _ in range(200):
+                result=agent.get_work(job['id'])
+                if result['status']!='processing':break
+                time.sleep(.005)
+        self.assertEqual(result['status'],'completed',result)
+        self.assertEqual(len(observed),4,'premature finalization must not finish the job')
+        self.assertIn('sem resultado final',observed[2])
 
 
 if __name__=='__main__':unittest.main()

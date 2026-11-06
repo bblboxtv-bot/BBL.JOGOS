@@ -227,6 +227,8 @@ class CommanderClient:
         self.definitions = {}
         self.call_ids = set()
         self.actions = []
+        self.pending_calls = set()
+        self.pending_processes = set()
 
     def rpc(self, method, params=None, notification=False):
         self.counter += 1
@@ -323,7 +325,24 @@ class CommanderClient:
                 for match in re.findall(r'call_id[=":\s]+([a-zA-Z0-9-]{16,100})', value):
                     self.call_ids.add(match)
         collect(result)
-        self.actions.append({'tool': name, 'confirmed': not result.get('isError', False)})
+        metadata=result.get('structuredContent') or {}
+        asynchronous=metadata.get('async_call') or metadata
+        call_id=asynchronous.get('call_id')
+        state=asynchronous.get('status')
+        if call_id and state in ('pending','queued','running','executing'):
+            self.pending_calls.add(call_id)
+        elif call_id and state in ('completed','failed','cancelled','terminated'):
+            self.pending_calls.discard(call_id)
+        output='\n'.join(c.get('text','') for c in result.get('content',[]) if c.get('type')=='text')
+        for pid in re.findall(r'Process started with PID\s+(\d+)',output,re.I):
+            self.pending_processes.add(int(pid))
+        finished=re.findall(r'Process\s+(\d+)\s+has finished execution',output,re.I)
+        for pid in finished:self.pending_processes.discard(int(pid))
+        exit_match=re.search(r'Process completed with exit code\s+(-?\d+)',output,re.I)
+        if exit_match and name=='read_process_output':self.pending_processes.discard(arguments.get('pid'))
+        pending=bool(state in ('pending','queued','running','executing') or (name=='start_process' and not finished and self.pending_processes))
+        confirmed=not result.get('isError',False) and not pending and not (exit_match and int(exit_match[1])!=0)
+        self.actions.append({'tool': name, 'confirmed': confirmed,'pending':pending})
         result = copy.deepcopy(result)
         for content in result.get('content', []):
             if content.get('type') in ('image', 'audio'):

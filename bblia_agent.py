@@ -389,6 +389,9 @@ def run_job(job, safe, data, files):
                             report['checks'] = ['chamadas ao computador registradas']
                             if not report['ok']:
                                 report['errors'].append('Nenhuma chamada ao computador foi confirmada.')
+                        if computer and (getattr(computer,'pending_calls',None) or getattr(computer,'pending_processes',None)):
+                            report['ok']=False
+                            report['errors'].append('Ainda há chamadas ou processos no computador sem resultado final. Consulte get_tool_result ou read_process_output antes de concluir.')
                         with LOCK:
                             job['validation'] = report
                         info = report
