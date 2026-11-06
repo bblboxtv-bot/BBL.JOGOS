@@ -14,6 +14,8 @@ def discover(sdk=None,jdk=None):
     jdk_candidates=[jdk,os.getenv('JAVA_HOME')]
     for folder in ('Android Studio','Android Studio1','Android Studio2'):
         jdk_candidates.append(str(Path(os.getenv('ProgramFiles',r'C:\Program Files'))/'Android'/folder/'jbr'))
+    for base in (Path.home()/'Documents'/'jdk17',Path.home()/'Documents'/'jdk21'):
+        if base.is_dir():jdk_candidates.extend(str(p) for p in sorted(base.glob('jdk*'),reverse=True) if p.is_dir())
     exe='.exe' if os.name=='nt' else ''
     jdk_path=next((Path(p) for p in jdk_candidates if p and (Path(p)/'bin'/('javac'+exe)).is_file()),None)
     if not sdk_path:raise BuildError('Android SDK não encontrado. Informe --sdk.')
@@ -88,11 +90,60 @@ def build(project,sdk=None,jdk=None):
     (output/'build-result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     return report
 
+def inspect_apk(path,env):
+    path=Path(path).resolve()
+    if not path.is_file() or path.suffix.lower()!='.apk':raise BuildError('Arquivo APK não encontrado.')
+    java=env['jdk']/'bin'/('java'+env['exe'])
+    signer=env['tools']/'lib'/'apksigner.jar'
+    signature=subprocess.run([str(java),'-jar',str(signer),'verify','--verbose',str(path)],capture_output=True,text=True,timeout=45,errors='replace')
+    if signature.returncode:raise BuildError('A assinatura do APK não foi validada: '+signature.stderr[-1000:])
+    badging=subprocess.run([str(env['tools']/('aapt'+env['exe'])),'dump','badging',str(path)],capture_output=True,text=True,timeout=45,errors='replace')
+    package=re.search(r"package: name='([^']+)' versionCode='([^']+)' versionName='([^']*)'",badging.stdout)
+    if badging.returncode or not package:raise BuildError('Não foi possível identificar pacote e versão do APK.')
+    activity=re.search(r"launchable-activity: name='([^']+)'",badging.stdout)
+    digest=hashlib.sha256()
+    with path.open('rb') as stream:
+        for chunk in iter(lambda:stream.read(1024*1024),b''):digest.update(chunk)
+    return {'apk':str(path),'bytes':path.stat().st_size,'sha256':digest.hexdigest(),
+            'package':package[1],'version_code':package[2],'version_name':package[3],
+            'activity':activity[1] if activity else None,'signature_verified':True}
+
+
+def build_gradle(project,sdk=None,jdk=None,task='assembleDebug',gradle=None):
+    root=Path(project).resolve();env=discover(sdk,jdk)
+    if not any((root/name).is_file() for name in ('settings.gradle','settings.gradle.kts','build.gradle','build.gradle.kts')):
+        raise BuildError('Projeto Gradle não encontrado.')
+    if not re.fullmatch(r'[:A-Za-z0-9_-]{1,120}',task):raise BuildError('Tarefa Gradle inválida.')
+    exe='.bat' if os.name=='nt' else ''
+    wrapper=root/('gradlew'+exe)
+    candidates=[Path(gradle)] if gradle else []
+    candidates.extend(sorted((Path.home()/'Documents').glob('gradle-*/bin/gradle'+exe),reverse=True))
+    system=__import__('shutil').which('gradle')
+    if system:candidates.append(Path(system))
+    command=wrapper if wrapper.is_file() else next((p for p in candidates if p.is_file()),None)
+    if not command:raise BuildError('Gradle ausente. Use o wrapper do projeto ou informe --gradle.')
+    output=root/'build-bblia'/('gradle-'+time.strftime('%Y%m%d-%H%M%S')+'-'+os.urandom(3).hex());output.mkdir(parents=True)
+    child=os.environ.copy();child.update(JAVA_HOME=str(env['jdk']),ANDROID_HOME=str(env['sdk']),ANDROID_SDK_ROOT=str(env['sdk']))
+    child['PATH']=str(env['jdk']/'bin')+os.pathsep+str(env['sdk']/'platform-tools')+os.pathsep+child.get('PATH','')
+    started=time.time()
+    result=subprocess.run([str(command),task,'--no-daemon','--console=plain'],cwd=root,env=child,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=1200)
+    log=output/'build.log';log.write_text(result.stdout+'\n'+result.stderr,encoding='utf-8')
+    if result.returncode:raise BuildError('Gradle falhou. Consulte '+str(log)+': '+(result.stdout+'\n'+result.stderr)[-2500:])
+    apks=[p for p in root.glob('**/build/outputs/apk/**/*.apk') if p.is_file() and p.stat().st_mtime>=started-3]
+    if not apks:raise BuildError('Gradle terminou, mas nenhum APK novo foi encontrado. Consulte '+str(log))
+    reports=[inspect_apk(apk,env) for apk in apks[:30]]
+    report={'ok':True,'engine':'gradle','task':task,'apks':reports,'installed':False,'runtime_tested':False,'log':str(log)}
+    (output/'build-result.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    return report
+
+
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('--project',required=True);parser.add_argument('--smoke',action='store_true');parser.add_argument('--sdk');parser.add_argument('--jdk');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--project',required=True);parser.add_argument('--smoke',action='store_true');parser.add_argument('--sdk');parser.add_argument('--jdk');parser.add_argument('--engine',choices=['auto','java','gradle'],default='auto');parser.add_argument('--task',default='assembleDebug');parser.add_argument('--gradle');args=parser.parse_args()
     try:
         root=Path(args.project);root.mkdir(parents=True,exist_ok=True)
         if args.smoke:smoke(root)
-        print(json.dumps(build(root,args.sdk,args.jdk),ensure_ascii=False))
+        use_gradle=args.engine=='gradle' or (args.engine=='auto' and any((root/name).is_file() for name in ('build.gradle','build.gradle.kts','settings.gradle','settings.gradle.kts')))
+        result=build_gradle(root,args.sdk,args.jdk,args.task,args.gradle) if use_gradle else build(root,args.sdk,args.jdk)
+        print(json.dumps(result,ensure_ascii=False))
     except Exception as exc:
         print(json.dumps({'ok':False,'error':str(exc)[:4000]},ensure_ascii=False));sys.exit(1)

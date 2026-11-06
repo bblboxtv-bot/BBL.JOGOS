@@ -15,6 +15,22 @@ async function readComputer(){
  computerCache=await new Promise((resolve,reject)=>{const request=db.transaction('work').objectStore('work').get(COMPUTER_KEY);request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error)});
  return computerCache;
 }
+async function queueComputerTask(text,selected=[]){
+ if(typeof cloudWrite!=='function'||!db)return;
+ await cloudWrite('computer-pending-task',{text,selected,chat:workspace.active,
+  account:typeof cloudUser!=='undefined'&&cloudUser?cloudUser.id:'guest',created:Date.now()});
+}
+async function resumeQueuedComputerTask(){
+ if(typeof cloudRead!=='function'||send.disabled)return false;
+ const task=await cloudRead('computer-pending-task');if(!task)return false;
+ const account=typeof cloudUser!=='undefined'&&cloudUser?cloudUser.id:'guest';
+ if(task.account!==account||Date.now()-task.created>3600000||task.chat!==workspace.active)return false;
+ if(!await computerReady())return false;
+ await cloudWrite('computer-pending-task',null);
+ notify('Computador conectado. Retomando o pedido salvo...');
+ if(document.getElementById('modal').open)document.getElementById('modal').close();
+ await runAutonomousWork(task.text,task.selected||[],{useComputer:true});return true;
+}
 async function computerPost(path,payload){
  const response=await fetch('/api/computer/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Não foi possível conectar o Commander.');return data;
@@ -80,7 +96,7 @@ async function showComputerConnection(){
    if(!devices.length){list.textContent='Não consegui identificar um computador nesta resposta. Confira os aparelhos no Commander.';return}
    for(const device of devices){
     button(list,(device.id===current.device_id?'✓ ':'')+device.name+' · '+(device.online?'Online':'Offline'),async()=>{
-     await saveComputer({...current,device_id:device.id,device_name:device.name});notify('Computador selecionado: '+device.name);showComputerConnection();
+     await saveComputer({...current,device_id:device.id,device_name:device.name});notify('Computador selecionado: '+device.name);if(!await resumeQueuedComputerTask())showComputerConnection();
     });
    }
    if(devices.length===1&&devices[0].online){
@@ -119,7 +135,7 @@ async function finishComputerOAuth(){
    const devices=computerDevices((await computerPost('devices',{access_token:tokens.access_token})).result);
    if(devices.length===1){await saveComputer({...await readComputer(),device_id:devices[0].id,device_name:devices[0].name});notify('Computador conectado: '+devices[0].name)}
   }catch(e){notify(e.message)}
-  showComputerConnection();
+  if(!await resumeQueuedComputerTask())showComputerConnection();
  }catch(error){notify(error.message);showComputerConnection()}
 }
 async function initComputerConnection(){

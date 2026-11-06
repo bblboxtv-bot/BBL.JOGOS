@@ -7,7 +7,7 @@ BASE = Path(__file__).resolve().parent
 SOURCE_NAMES = (
     'bblia_index.html', 'bblia_app.py', 'bblia_work.js', 'bblia_work.py',
     'bblia_agent.js', 'bblia_agent.py', 'bblia_voice.js', 'bblia_media.py',
-    'bblia_computer.js', 'bblia_computer.py', 'bblia_gemini.py', 'bblia_speech.py', 'bblia_free_image.py', 'bblia_zip.py', 'bblia_apk.py', 'bblia_self.py', 'bblia_logo.svg',
+    'bblia_computer.js', 'bblia_computer.py', 'bblia_android_build.py', 'bblia_workstation.py', 'bblia_apk_delivery.py', 'bblia_gemini.py', 'bblia_speech.py', 'bblia_free_image.py', 'bblia_zip.py', 'bblia_apk.py', 'bblia_self.py', 'bblia_logo.svg',
 )
 CREATIVE_GUIDANCE = ('Não invente uma proibição geral de figuras políticas, sátira, humor ou palavrões. '
     'Não dê bronca, sermão ou peça linguagem apropriada só porque o usuário usou palavrões ou gírias. '

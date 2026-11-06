@@ -1,3 +1,4 @@
+import bblia_apk_delivery as apk_delivery
 from bblia_speech import synthesize, transcribe, SpeechError
 import bblia_documents as documents
 import bblia_runtime as runtime
@@ -54,7 +55,7 @@ def mega_sena(concurso=None):
  return {'concurso':data.get('numero'),'data':data.get('dataApuracao'),'dezenas':data.get('listaDezenas'),'acumulou':data.get('acumulado'),'proximo_concurso':data.get('numeroConcursoProximo'),'proximo_sorteio':data.get('dataProximoConcurso'),'fonte':'CAIXA Loterias'}
 class Handler(BaseHTTPRequestHandler):
  def log_message(self,format,*args):
-  safe=tuple(re.sub(r'(/(?:computer|google)-callback)\?[^ ]*',r'\1?[autorizacao]',arg) if isinstance(arg,str) else arg for arg in args)
+  safe=tuple(re.sub(r'(/api/apk/(?:upload|download)/)[^ /?\"]+',r'\1[arquivo]',re.sub(r'(/(?:computer|google)-callback)\?[^ ]*',r'\1?[autorizacao]',arg)) if isinstance(arg,str) else arg for arg in args)
   super().log_message(format,*safe)
  def reply(self,code,obj):
   body=json.dumps(obj,ensure_ascii=False).encode()
@@ -96,12 +97,36 @@ class Handler(BaseHTTPRequestHandler):
    return self.google_reply(exc.status,{'error':str(exc)})
   except (ValueError,TypeError):return self.google_reply(400,{'error':'Pedido inválido.'})
   except Exception:return self.google_reply(502,{'error':'Não foi possível concluir a conexão Google.'})
+ def deliver_apk(self,head=False):
+  try:item=apk_delivery.download(urlsplit(self.path).path.rsplit('/',1)[-1])
+  except ValueError as exc:return self.reply(404,{'error':str(exc)})
+  self.send_response(200);self.send_header('Content-Type','application/vnd.android.package-archive');self.send_header('Content-Disposition','attachment; filename="'+item['name']+'"');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(item['bytes']));self.end_headers()
+  if head:return
+  try:
+   with open(item['path'],'rb') as file:
+    for part in iter(lambda:file.read(1024*1024),b''):self.wfile.write(part)
+  except (BrokenPipeError,ConnectionResetError):pass
+ def receive_compiled_apk(self):
+  self.close_connection=True
+  try:
+   length=int(self.headers.get('Content-Length','0'));self.connection.settimeout(60)
+   result=apk_delivery.receive(urlsplit(self.path).path.rsplit('/',1)[-1],self.rfile,length)
+   return self.reply(200,result)
+  except (ValueError,OSError) as exc:return self.reply(400,{'error':str(exc)[:300]})
+  except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
+  if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
+
   if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
   if urlsplit(self.path).path.startswith('/api/work/jobs/'):
-   try:return self.reply(200,get_work(urlsplit(self.path).path.rsplit('/',1)[-1]))
+   try:
+    from urllib.parse import parse_qs
+    revision=parse_qs(urlsplit(self.path).query).get('checkpoint_revision',[None])[0]
+    revision=int(revision) if revision is not None else None
+    return self.reply(200,get_work(urlsplit(self.path).path.rsplit('/',1)[-1],revision))
    except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
+   except ValueError:return self.reply(400,{'error':'Versão de recuperação inválida.'})
   if urlsplit(self.path).path=='/api/documents/status':return self.reply(200,documents.status())
   if urlsplit(self.path).path=='/api/runtime/status':return self.reply(200,runtime.status())
   if urlsplit(self.path).path=='/api/integrations':
@@ -127,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
    self.send_response(200);self.send_header('Content-Type','image/svg+xml');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO)));self.end_headers();self.wfile.write(LOGO)
-  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'voice-continuity-20261106','source':os.getenv('RENDER_GIT_COMMIT','local')})
+  elif urlsplit(self.path).path=='/health':self.reply(200,{'status':'ok','app':'BBLIA','version':'workstation-checkpoints-20261106','source':os.getenv('RENDER_GIT_COMMIT','local')})
   elif urlsplit(self.path).path=='/api/lottery':
    try:
     from urllib.parse import parse_qs
@@ -171,6 +196,7 @@ class Handler(BaseHTTPRequestHandler):
   except MediaError as exc:self.reply(exc.status,{'error':str(exc)})
   except (BrokenPipeError,ConnectionResetError):pass
  def do_HEAD(self):
+  if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk(head=True)
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video(head=True)
   self.send_response(200 if urlsplit(self.path).path in ('/','/health') else 404);self.send_header('Content-Length','0');self.end_headers()
  def realtime_token(self):
@@ -257,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    ZIP_SLOTS.release()
  def do_POST(self):
+  if urlsplit(self.path).path.startswith('/api/apk/upload/'):return self.receive_compiled_apk()
   if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path=='/api/zip/analyze':return self.zip_inspect()
@@ -273,7 +300,17 @@ class Handler(BaseHTTPRequestHandler):
    except ComputerError as exc:return self.reply(exc.status,{'error':str(exc)})
    except (ValueError,TypeError):return self.reply(400,{'error':'Pedido de conexão inválido'})
    except Exception:return self.reply(502,{'error':'Não foi possível concluir a conexão com o Commander.'})
+  if self.path.startswith('/api/work/jobs/') and self.path.endswith('/apk-ticket'):
+   try:
+    job_id=self.path.split('/')[-2];get_work(job_id)
+    length=int(self.headers.get('Content-Length','0'))
+    if not 1<=length<=4096:raise ValueError('Pedido inválido.')
+    data=json.loads(self.rfile.read(length));ticket=apk_delivery.prepare(job_id,data.get('name',''),data.get('sha256',''))
+    return self.reply(200,{'upload_path':'/api/apk/upload/'+ticket})
+   except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
+   except (ValueError,TypeError):return self.reply(400,{'error':'Dados de envio do APK inválidos.'})
   if self.path.startswith('/api/work/jobs/') and self.path.endswith('/cancel'):
+
    try:return self.reply(200,cancel_work(self.path.split('/')[-2]))
    except WorkError as exc:return self.reply(exc.status,{'error':str(exc)})
   if self.path=='/api/work/jobs':

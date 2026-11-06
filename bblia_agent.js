@@ -17,8 +17,10 @@ function wantsSelfImprovement(text){
 }
 function wantsAndroidBuild(text){
  if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim()))return false;
- return /\b(android|apk|launcher)\b/i.test(text)&&/(crie|criar|faça|fazer|compile|compilar|gere|gerar|monte|desenvolv)/i.test(text);
+ if(/(?:apenas|somente|só|so)\s+(?:o\s+)?c[oó]digo|c[oó]digo[- ]fonte/i.test(text))return false;
+ return /\b(android|apk|launcher)\b/i.test(text)&&/(crie|criar|faça|fazer|faz\b|compile|compilar|gere|gerar|gera\b|monte|desenvolv|quero|preciso|transform|consegue|conseguir)/i.test(text);
 }
+
 function wantsAutonomousWork(text,selected=[]){
  if(workspace.preferences.agent===false)return false;
  if(wantsSelfImprovement(text))return true;
@@ -31,7 +33,7 @@ function wantsAutonomousWork(text,selected=[]){
 function projectArtifacts(projectId,chat){
  const files=new Map();
  workspace.chats.filter(c=>projectId?c.projectId===projectId:c.id===chat.id).sort((a,b)=>a.updated-b.updated)
-  .forEach(c=>c.messages.forEach(m=>(m.artifacts||[]).filter(f=>!f.data_base64).forEach(f=>files.set(f.name,f.content))));
+  .forEach(c=>c.messages.forEach(m=>(m.artifacts||[]).filter(f=>!f.data_base64&&!f.download_url).forEach(f=>files.set(f.name,f.content))));
  return Array.from(files,([name,content])=>({name,content}));
 }
 function renderWorkProgress(bubble,data,cancel){
@@ -87,21 +89,48 @@ async function requestWork(payload){
  const response=await fetch('/api/work/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Não foi possível iniciar o trabalho.');return data;
 }
+async function saveWorkCheckpoint(pending,data){
+ const point=data.checkpoint;if(!point||point.version!==1)return;
+ if(pending.checkpoint?.revision===point.revision&&pending.checkpointJob===pending.id)return;
+ pending.checkpoint={version:1,revision:point.revision,steps:point.steps,
+  artifacts:(point.artifacts||[]).map(file=>({name:file.name,content:file.content})),
+  plan:(point.plan||[]).map(String),computer_actions:(point.computer_actions||[]).map(action=>({tool:action.tool,confirmed:!!action.confirmed})),
+  pending_action:point.pending_action?{tool:String(point.pending_action.tool),started:point.pending_action.started}:null,saved_at:point.saved_at};
+ pending.checkpointJob=pending.id;await persist();
+}
+function workRecoveryPayload(pending){
+ const point=pending.checkpoint;
+ return {...pending.payload,files:point?.artifacts?.length?point.artifacts:(pending.payload.files||[]),
+  resume_context:'Retomar os arquivos salvos do mesmo pedido. Etapas anteriores: '+JSON.stringify(point?.plan||[]),
+  messages:[...pending.payload.messages.slice(-12),{role:'user',content:'Continue este pedido a partir dos arquivos preservados. Leia antes de editar, mantenha o que já funciona, termine e valide. Não entregue somente um plano.'}]};
+}
 async function pollWork(bubble,pending){
  let failures=0;
  while(true){
   let data;
   try{
-   const response=await fetch('/api/work/jobs/'+encodeURIComponent(pending.id));
+   const response=await fetch('/api/work/jobs/'+encodeURIComponent(pending.id)+(pending.checkpointJob===pending.id?'?checkpoint_revision='+encodeURIComponent(pending.checkpoint?.revision??-1):''));
    data=await response.json();
    if(!response.ok){if(response.status===404){const error=Error(data.error);error.expired=true;throw error}throw Error(data.error||'Falha ao consultar o trabalho')}
    failures=0;
   }catch(error){
-   if(error.expired)throw error;
+   if(error.expired){
+    const point=pending.checkpoint;
+    if(!pending.cancelled&&!pending.payload.use_computer&&point&&(pending.recoveries||0)<2){
+     renderWorkProgress(bubble,{progress:'Recuperando o trabalho a partir do último ponto salvo neste aparelho'},null);
+     pending.payload=workRecoveryPayload(pending);const resumed=await requestWork(pending.payload);
+     pending.id=resumed.id;pending.recoveries=(pending.recoveries||0)+1;await persist();continue;
+    }
+    if(point?.artifacts?.length)return {status:'partial',artifacts:point.artifacts,
+     error:pending.payload.use_computer?'O servidor reiniciou. Os arquivos foram recuperados; confira o estado dos comandos no computador antes de repetir operações.':'Arquivos recuperados do último ponto salvo neste aparelho. Continue com esses arquivos.',
+     recovery_required:!!pending.payload.use_computer};
+    throw error;
+   }
    failures++;renderWorkProgress(bubble,{progress:'Reconectando para acompanhar o trabalho. Ele pode continuar no servidor.'},null);
    if(failures>12)throw Error('A conexão continua indisponível. Reabra esta conversa para acompanhar o trabalho.');
    await workSleep(5000);continue;
   }
+  await saveWorkCheckpoint(pending,data);
   if(!['processing','cancelling'].includes(data.status))return data;
   renderWorkProgress(bubble,data,async()=>{
    pending.cancelled=true;
@@ -114,6 +143,13 @@ async function finishWork(bubble,pending){
  const chat=currentChat();
  try{
   let data=await pollWork(bubble,pending);
+  let fingerprint=JSON.stringify(pending.payload.files||[]);
+  for(let round=0;round<6&&data.resume_reason==='step_budget'&&!pending.cancelled&&!pending.payload.use_computer;round++){
+   const nextFingerprint=JSON.stringify(data.artifacts||[]);if(nextFingerprint===fingerprint)break;
+   fingerprint=nextFingerprint;pending.payload=workRecoveryPayload(pending);
+   renderWorkProgress(bubble,{progress:'Continuando o mesmo trabalho com os arquivos já salvos'},null);
+   const next=await requestWork(pending.payload);pending.id=next.id;await persist();data=await pollWork(bubble,pending);
+  }
   // Check generated JavaScript syntax without executing it in the BBLIA page.
   // Repair automatically, retaining the same request and files.
   for(let attempt=0;attempt<2&&data.status==='completed'&&!pending.cancelled;attempt++){
@@ -141,9 +177,9 @@ async function finishWork(bubble,pending){
   return {status:data.status,summary:answer,files:artifacts.map(f=>f.name)};
  }catch(error){
   bubble.textContent='Não foi possível acompanhar o trabalho: '+error.message;
-  if(error.expired){delete chat.workJob;await persist()}
+  if(error.expired&&!pending.checkpoint){delete chat.workJob;await persist()}
   button(bubble,'Retomar acompanhamento',()=>{if(!send.disabled&&chat.workJob)resumeAutonomousWork()});
-  notify('Trabalho não confirmado. Os arquivos anteriores continuam salvos.');
+  notify('Trabalho não confirmado. O último ponto de recuperação continua salvo neste aparelho.');
   return {status:'failed',error:error.message};
  }finally{
   activeWork=null;send.disabled=false;waitingVoice=false;
@@ -165,13 +201,13 @@ async function runAutonomousWork(text,selected=[],options={}){
  const files=projectArtifacts(project.id,chat);
  prompt.value='';attachments=[];renderAttachments();
  const label=selected.length?'\n[Referências: '+selected.map(f=>f.name).join(', ')+']':'';
- add('user',text+label);history.push({role:'user',content:text+label});
+ if(!options.reuseUser){add('user',text+label);history.push({role:'user',content:text+label})}
  const payload={messages:history.slice(-16).map(m=>({role:m.role,content:m.content.slice(0,12000)})),
-  attachments:selected,files,self_improvement:selfImprovement,use_computer:!!options.useComputer,preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
+  attachments:selected,files,self_improvement:selfImprovement,use_computer:!!options.useComputer,deliver_apk:!selfImprovement&&wantsAndroidBuild(text),preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
  while(payload.messages[0]?.role==='assistant')payload.messages.shift();
  send.disabled=true;waitingVoice=true;
  if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();
- const bubble=add('assistant','⚡ Analisando o pedido e os anexos...');
+ const bubble=options.bubble||add('assistant','⚡ Analisando o pedido e os anexos...');
  await saveChat();
  try{
   const started=await requestWork(payload);
@@ -194,12 +230,12 @@ sendMessage=async function(){
  const text=prompt.value.trim();await saveRequestedNickname(text);const project=currentProject();
  const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
  const explicitComputer=text&&typeof wantsComputerWork==='function'&&wantsComputerWork(text)&&!wantsSelfImprovement(text);
- if(text&&(explicitComputer||wantsAutonomousWork(text,selected))){
+ if(text&&(explicitComputer||wantsAndroidBuild(text)||wantsAutonomousWork(text,selected))){
   if(selected.length>4)return notify('Use até quatro referências por trabalho.');
   let useComputer=false;
   if(explicitComputer||wantsAndroidBuild(text)){
    useComputer=typeof computerReady==='function'&&await computerReady();
-   if(explicitComputer&&!useComputer){notify('Conecte o Commander e selecione o computador para executar esta tarefa.');if(typeof showComputerConnection==='function')await showComputerConnection();return}
+   if(!useComputer){if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);notify('Pedido salvo. Conecte o computador para compilar e entregar o APK ou executar a tarefa.');if(typeof showComputerConnection==='function')await showComputerConnection();return}
   }
   return runAutonomousWork(text,selected,{useComputer});
  }

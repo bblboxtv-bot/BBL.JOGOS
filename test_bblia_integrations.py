@@ -94,6 +94,14 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(seen[0][0],'list_directory')
         self.assertNotIn('secret-owner-token',json.dumps(result))
 
+    def test_apk_request_explains_missing_compiler_instead_of_text_only_refusal(self):
+        with self.assertRaisesRegex(agent.WorkError,'Conecte o computador'):
+            agent.start_work({'messages':[{'role':'user','content':'Crie um APK para Android.'}]})
+        self.assertFalse(agent.requires_apk_delivery({'messages':[{'role':'user','content':'Crie somente o código-fonte de um APK.'}]}))
+        with patch.object(g,'request',return_value=upstream([{'functionCall':{'name':'fazer_trabalho','args':{'pedido':'Crie um APK Android de calculadora.'}}}])):
+            result=g.responder([{'role':'user','content':'Faça uma calculadora Android.'}])
+        self.assertEqual(result['action']['kind'],'work')
+
     def test_no_default_fallback_when_only_paid_key_exists(self):
         with patch.dict(os.environ,{'GEMINI_API_KEY':'','GOOGLE_API_KEY':'','OPENAI_API_KEY':'paid'}):
             with self.assertRaisesRegex(agent.WorkError,'Nenhum serviço pago'):agent.start_work({'messages':[{'role':'user','content':'Oi'}]})

@@ -88,6 +88,23 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(result['status'],'cancelled')
         self.assertEqual(result['artifacts'],[{'name':'seed.txt','content':'preserve'}])
 
+    def test_checkpoint_preserves_files_while_worker_is_still_running(self):
+        entered=threading.Event();release=threading.Event();calls=[]
+        def model(payload,key):
+            calls.append(payload)
+            if len(calls)==1:return response(1,[('criar_arquivo',{'nome':'parcial.txt','conteudo':'salvo antes da queda'})])
+            entered.set();release.wait(2)
+            return response(2,[('finalizar_trabalho',{'tipo':'codigo','resumo':'Pronto','limitacoes':[]})])
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'secret'}),patch.object(agent,'request_model',side_effect=model):
+            job=agent.start_work({'provider':'openai','paid_authorized':True,'messages':[{'role':'user','content':'Crie um arquivo'}]})
+            self.assertTrue(entered.wait(1))
+            snapshot=agent.get_work(job['id'])
+            self.assertEqual(snapshot['checkpoint']['artifacts'][0]['content'],'salvo antes da queda')
+            unchanged=agent.get_work(job['id'],snapshot['checkpoint']['revision'])
+            self.assertNotIn('artifacts',unchanged['checkpoint'])
+            self.assertNotIn('secret',json.dumps(snapshot))
+            release.set();self.wait(job['id'])
+
     def test_unknown_job_does_not_expose_other_jobs(self):
         with self.assertRaises(agent.WorkError):
             agent.get_work('unknown-id')
