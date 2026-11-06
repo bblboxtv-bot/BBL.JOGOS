@@ -136,7 +136,7 @@ class ZipTests(unittest.TestCase):
             req=urllib.request.Request(url+'/api/zip/analyze',data=raw,headers={'Content-Type':'application/zip','X-Filename':'teste.zip'})
             result=json.load(urllib.request.urlopen(req))
             self.assertIn('BBL.BOXTV',result['attachment']['data'])
-            for path,payload in [('/api/chat',{'provider':'openai','messages':[{'role':'user','content':'Oi'}]}),('/api/media/jobs',{'kind':'image','prompt':'uma paisagem'})]:
+            for path,payload in [('/api/chat',{'provider':'openai','messages':[{'role':'user','content':'Oi'}]})]:
                 with self.assertRaises(urllib.error.HTTPError) as raised:urllib.request.urlopen(urllib.request.Request(url+path,data=json.dumps(payload).encode()))
                 self.assertEqual(raised.exception.code,400)
         finally:server.shutdown();server.server_close()

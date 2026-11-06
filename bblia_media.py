@@ -28,69 +28,16 @@ class MediaError(Exception):
 
 
 def capabilities():
-    return {'image': bool(os.getenv('OPENAI_API_KEY')),
+    return {'image': True, 'image_reference': True, 'image_provider':'qwen-free', 'image_paid_fallback':False,
+            'image_notice':'Imagens e edição gratuitas pelo Qwen, sujeitas à cota do Hugging Face.',
             'video': True, 'video_reference': True, 'video_provider': 'ltx-free', 'video_paid_fallback': False, 'video_app_daily_limit': None,
             'video_account_connected': bool(os.getenv('HF_TOKEN', '').strip()),
             'video_notice': 'Vídeos gratuitos pelo LTX Video, sujeitos à cota do Hugging Face e à disponibilidade da fila.'}
 
 
-def request_json(url, key, payload=None, timeout=30):
-    headers = {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
-    data = None if payload is None else json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as exc:
-        try:
-            details = json.loads(exc.read(4000))
-            error = details.get('error', {})
-            message = error.get('message', '') if isinstance(error, dict) else str(error)
-            code = error.get('code', '') if isinstance(error, dict) else ''
-        except Exception:
-            message = code = ''
-        if exc.code == 401:
-            raise MediaError('A conexão do serviço de mídia precisa ser atualizada.', 503)
-        if exc.code == 429:
-            raise MediaError('O serviço de mídia está sem saldo ou atingiu seu limite. Verifique os créditos.', 503)
-        if 'verif' in message.lower():
-            raise MediaError('A conta OpenAI precisa concluir a verificação para gerar imagens.', 503)
-        if 'moderation' in str(code) or 'safety' in str(code):
-            raise MediaError('O serviço recusou esta descrição. Tente outra imagem.', 422)
-        raise MediaError('O serviço não conseguiu gerar a mídia (HTTP %s). Tente novamente.' % exc.code, 502)
-
-
 def generate_image(prompt, reference=None):
-    if reference:
-        return edit_image(prompt, reference)
-    result = request_json('https://api.openai.com/v1/images/generations',
-                          os.environ['OPENAI_API_KEY'],
-                          {'model': 'gpt-image-1-mini', 'prompt': prompt,
-                           'size': '1024x1024', 'quality': 'low', 'n': 1}, timeout=180)
-    encoded = result['data'][0]['b64_json']
-    return {'image': 'data:image/png;base64,' + encoded}
-
-
-def edit_image(prompt, reference):
-    data = reference['data']
-    mime, encoded = data.split(';base64,', 1)
-    mime = mime.removeprefix('data:')
-    ext = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp'}[mime]
-    boundary = 'bblia' + uuid.uuid4().hex
-    chunks = []
-    fields = {'model': 'gpt-image-1-mini', 'prompt': prompt, 'size': '1024x1024', 'quality': 'low', 'n': '1'}
-    for name, value in fields.items():
-        chunks.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+name+'"\r\n\r\n'+value+'\r\n').encode())
-    chunks.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="image"; filename="reference.'+ext+'"\r\nContent-Type: '+mime+'\r\n\r\n').encode())
-    chunks.append(base64.b64decode(encoded, validate=True))
-    chunks.append(('\r\n--'+boundary+'--\r\n').encode())
-    req = urllib.request.Request('https://api.openai.com/v1/images/edits', data=b''.join(chunks), headers={'Authorization': 'Bearer '+os.environ['OPENAI_API_KEY'], 'Content-Type': 'multipart/form-data; boundary='+boundary})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as response:
-            result = json.load(response)
-        return {'image': 'data:image/png;base64,'+result['data'][0]['b64_json']}
-    except urllib.error.HTTPError as exc:
-        raise MediaError('Não foi possível editar a foto (HTTP %s). Confira a disponibilidade do serviço de imagens.' % exc.code, 503)
+    from bblia_free_image import generate
+    return generate(prompt,reference)
 
 
 # Fixed public demo endpoint: no provider key, billing, or paid fallback.
@@ -270,8 +217,7 @@ def start_job(kind, prompt, client, reference=None):
             if usage_key[0] < day:
                 del USAGE[usage_key]
         total = sum(v for (d, k, _), v in USAGE.items() if d == day and k == kind)
-        # Only paid image generation has an app-level daily budget.
-        # Free videos follow the provider's quota without a second daily cap.
+        # Free media follows the provider's quota without a second daily cap.
         USAGE[token] = USAGE.get(token, 0) + 1
         job_id = secrets.token_urlsafe(24)
         JOBS[job_id] = {'id': job_id, 'kind': kind, 'status': 'processing', 'created': time.time()}

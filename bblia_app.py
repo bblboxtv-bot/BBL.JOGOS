@@ -202,7 +202,6 @@ class Handler(BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):return self.reply(400,{'error':'Pedido inválido'})
    ip=self.headers.get('X-Forwarded-For','').split(',')[0].strip() or self.client_address[0]
-   if data.get('kind','image')=='image' and data.get('paid_authorized') is not True:return self.reply(400,{'error':'A geração de imagem OpenAI é paga e não foi acionada. Autorize o uso pago para este pedido ou use uma conexão gratuita de imagens.'})
    job=start_job(data.get('kind','image'),data.get('prompt',''),ip, data.get('reference'))
    return self.reply(202,job)
   except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})

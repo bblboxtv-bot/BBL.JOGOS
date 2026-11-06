@@ -181,6 +181,8 @@ def responder(messages, model=None, preferences=None, project=None, cookie='', w
          'parameters':{'type':'object','properties':{'cidade':{'type':'string'}},'required':['cidade']}},
         {'type':'function','name':'consultar_mega_sena','description':'Consultar resultado oficial da Mega-Sena.',
          'parameters':{'type':'object','properties':{'concurso':{'type':['integer','null']}},'required':['concurso']}},
+        {'type':'function','name':'criar_imagem','description':'Encaminhar criação gratuita de imagem, foto ou logomarca para o gerador conectado.',
+         'parameters':{'type':'object','properties':{'descricao':{'type':'string'}},'required':['descricao']}},
         {'type':'function','name':'criar_video','description':'Encaminhar criação de vídeo gratuito para o gerador conectado.',
          'parameters':{'type':'object','properties':{'descricao':{'type':'string'}},'required':['descricao']}},
     ])
@@ -204,7 +206,7 @@ def responder(messages, model=None, preferences=None, project=None, cookie='', w
                 args = json.loads(call['arguments'])
                 if name == 'consultar_tempo':info = weather(args.get('cidade')) if weather else {'error':'Tempo indisponível.'}
                 elif name == 'consultar_mega_sena':info = lottery(args.get('concurso')) if lottery else {'error':'Loteria indisponível.'}
-                elif name == 'criar_video':return {'action':{'kind':'video','prompt':str(args.get('descricao',''))[:900]}}
+                elif name in ('criar_video','criar_imagem'):return {'action':{'kind':'video' if name=='criar_video' else 'image','prompt':str(args.get('descricao',''))[:900]}}
                 elif name in ('consultar_email','ler_email','consultar_agenda','buscar_drive','ler_arquivo_drive'):info = google.execute(cookie,name,args)
                 else:info = execute_work_tool(name,args,artifacts)
             except Exception as exc:
