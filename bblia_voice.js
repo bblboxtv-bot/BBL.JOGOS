@@ -5,6 +5,77 @@ let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voi
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
 const voicePendingRequests=new Set();
 let voiceAnalyser=null,voiceSource=null,voiceSink=null,voiceOneShot=false;
+let voiceBarge=null;
+
+// Keep a short PCM pre-roll so an interruption includes the first syllable.
+function stopVoiceBarge(){
+ const state=voiceBarge;voiceBarge=null;if(!state)return;
+ state.processor.onaudioprocess=null;
+ for(const node of [state.source,state.processor,state.sink])try{node.disconnect()}catch(e){}
+}
+function voiceBargeWav(parts,rate){
+ const length=parts.reduce((n,p)=>n+p.length,0),input=new Float32Array(length);let offset=0;
+ for(const part of parts){input.set(part,offset);offset+=part.length}
+ const target=16000,count=Math.floor(length*target/rate),buffer=new ArrayBuffer(44+count*2),v=new DataView(buffer);
+ const text=(at,s)=>{for(let i=0;i<s.length;i++)v.setUint8(at+i,s.charCodeAt(i))};
+ text(0,'RIFF');v.setUint32(4,36+count*2,true);text(8,'WAVEfmt ');v.setUint32(16,16,true);
+ v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,target,true);v.setUint32(28,target*2,true);
+ v.setUint16(32,2,true);v.setUint16(34,16,true);text(36,'data');v.setUint32(40,count*2,true);
+ for(let i=0;i<count;i++){const a=Math.floor(i*rate/target),b=Math.min(length,Math.floor((i+1)*rate/target));let sum=0;for(let j=a;j<b;j++)sum+=input[j];v.setInt16(44+i*2,Math.max(-1,Math.min(1,sum/Math.max(1,b-a)))*32767,true)}
+ return new Blob([buffer],{type:'audio/wav'});
+}
+async function finishVoiceBarge(state){
+ if(voiceBarge!==state)return;
+ const blob=voiceBargeWav(state.parts,state.rate);stopVoiceBarge();
+ const generation=state.generation,active=()=>voiceMode&&generation===voiceGeneration;
+ waitingVoice=true;status.textContent='Reconhecendo sua fala...';
+ const controller=new AbortController();voiceRequest=controller;
+ const timeout=setTimeout(()=>controller.abort(),20000);
+ try{
+  const encoded=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(blob)});
+  if(!active())return;
+  const response=await fetch('/api/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio:encoded,mime:blob.type}),signal:controller.signal});
+  const result=await response.json();if(!active())return;if(!response.ok)throw Error(result.error||'Falha no reconhecimento.');
+  // The interrupted answer's finally must release the composer before the new turn.
+  while(send.disabled&&active())await new Promise(resolve=>setTimeout(resolve,30));
+  if(active()){waitingVoice=false;await sendRecognizedVoice(result.text)}
+ }catch(error){if(active())voiceFailure(error)}finally{
+  clearTimeout(timeout);if(voiceRequest===controller)voiceRequest=null;
+ }
+}
+async function startVoiceBarge(token){
+ if(!voiceMode||!navigator.mediaDevices?.getUserMedia)return;
+ const generation=voiceGeneration,active=()=>voiceMode&&generation===voiceGeneration&&token===voiceToken&&voiceSpeaking;
+ try{
+  if(!voiceCapture?.getAudioTracks().some(t=>t.readyState==='live')){
+   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+   if(!active()){stream.getTracks().forEach(t=>t.stop());return}voiceCapture=stream;
+  }
+  if(!active())return;prepareVoiceContext();await voiceContext?.resume();
+  if(!active()||!voiceContext?.createScriptProcessor)return;
+  stopVoiceBarge();
+  const source=voiceContext.createMediaStreamSource(voiceCapture),processor=voiceContext.createScriptProcessor(2048,1,1),sink=voiceContext.createGain();sink.gain.value=0;
+  const state={source,processor,sink,generation,rate:voiceContext.sampleRate,parts:[],elapsed:0,voiced:0,quiet:0,triggered:false};voiceBarge=state;
+  processor.onaudioprocess=event=>{
+   if(voiceBarge!==state||generation!==voiceGeneration||!voiceMode)return;
+   const samples=new Float32Array(event.inputBuffer.getChannelData(0)),duration=samples.length/state.rate;
+   const rms=Math.sqrt(samples.reduce((n,v)=>n+v*v,0)/samples.length);state.elapsed+=duration;
+   state.parts.push(samples);
+   if(!state.triggered){
+    while(state.parts.length>Math.ceil(state.rate*.45/samples.length))state.parts.shift();
+    state.voiced=rms>.018?state.voiced+duration:0;
+    if(state.voiced>=.16){
+     state.triggered=true;state.elapsed=0;clearVoiceTimers();stopSpeaking(true);
+     waitingVoice=true;status.textContent='Pode falar. Estou ouvindo você.';
+    }
+   }else{
+    state.quiet=rms>.006?0:state.quiet+duration;
+    if(state.quiet>=.7||state.elapsed>=20)finishVoiceBarge(state);
+   }
+  };
+  source.connect(processor);processor.connect(sink);sink.connect(voiceContext.destination);
+ }catch(error){if(active())status.textContent='Voz ativa. Toque no microfone para parar se o aparelho não permitir interrupção.'}
+}
 
 // Default to the user's requested brighter feminine voice and brisker delivery.
 const voicePlaybackRate=1.15;
@@ -37,11 +108,12 @@ function createVoiceTurnDetector(){
   voiced=voiced.filter(t=>now-t<=650);
   if(rms>threshold){voiced.push(now);lastSpeech=now;if(voiced.length>=3)heard=true}
   else noise=noise*0.97+rms*0.03;
-  return {heard,finished:heard&&now-lastSpeech>=1400};
+  return {heard,finished:heard&&now-lastSpeech>=850};
  }};
 }
 
 function endRealtime(){
+ stopVoiceBarge();
  voiceGeneration++;clearVoiceTimers();clearInterval(voiceMeterTimer);voiceMeterTimer=null;
  voiceRequest?.abort();voiceRequest=null;
  for(const controller of voicePendingRequests)controller.abort();voicePendingRequests.clear();
@@ -53,8 +125,10 @@ function endRealtime(){
  if(voiceContext){voiceContext.close().catch(()=>{});voiceContext=null}
  realtimeConnecting=false;waitingVoice=false;voiceOneShot=false;
 }
-stopSpeaking=function(){
+stopSpeaking=function(keepBarge=false){
+ if(keepBarge!==true)stopVoiceBarge();
  voiceToken++;voiceRequest?.abort();voiceRequest=null;
+ for(const controller of voicePendingRequests)controller.abort();voicePendingRequests.clear();
  voiceCancelPlayback?.();voiceCancelPlayback=null;
  if(currentAudio){currentAudio.pause();currentAudio=null}
  if('speechSynthesis' in window)speechSynthesis.cancel();
@@ -159,6 +233,7 @@ function playSpeechBuffer(buffer,token){
 }
 speak=async function(text){
  stopSpeaking();const token=voiceToken;voiceSpeaking=true;const chunks=speechChunks(text);
+ startVoiceBarge(token);
  // Prepare the next chunk during playback, never after a sentence has finished.
  let pending=chunks.length?loadSpeechChunk(chunks[0],token):null;
  try{for(let index=0;index<chunks.length;index++){
@@ -169,7 +244,7 @@ speak=async function(text){
    if(ready.buffer)await playSpeechBuffer(ready.buffer,token);
    else if(ready.blob)await playSpeechBlob(ready.blob,token);
   }catch(error){if(token!==voiceToken)return;await deviceSpeech(chunks[index],token)}
- }}finally{if(token===voiceToken)voiceSpeaking=false}
+ }}finally{if(token===voiceToken){voiceSpeaking=false;stopVoiceBarge()}}
 };
 
 function offerVoiceReplay(answer){
@@ -182,14 +257,14 @@ replyByVoice=async function(answer){
  waitingVoice=true;
  if(!muted){
   status.textContent='🔊 BBLIA falando...';
-  try{await speak(answer);status.textContent='Resposta concluída'}catch(e){status.textContent='Toque em Ouvir resposta para ativar o som.';offerVoiceReplay(answer)}
+  try{await speak(answer);if(!voiceBarge?.triggered)status.textContent='Resposta concluída'}catch(e){status.textContent='Toque em Ouvir resposta para ativar o som.';offerVoiceReplay(answer)}
  }
  waitingVoice=false;
  if(voiceMode&&document.getElementById('auto').checked)scheduleVoiceListen(450);
 };
 scheduleVoiceListen=function(delay=300){
  clearTimeout(voiceRestartTimer);
- if(!voiceMode||waitingVoice||voiceSpeaking)return;
+ if(!voiceMode||waitingVoice||voiceSpeaking||voiceBarge)return;
  voiceRestartTimer=setTimeout(()=>{voiceRestartTimer=null;if(voiceMode&&!waitingVoice&&!voiceSpeaking&&!send.disabled)listenVoice()},delay);
 };
 function voiceFailure(error){
@@ -250,7 +325,7 @@ async function captureVoice(){
  }catch(e){if(active())voiceFailure(e)}finally{if(generation===voiceGeneration)realtimeConnecting=false}
 }
 listenVoice=function(){
- if(!voiceMode||waitingVoice||voiceSpeaking||send.disabled||recognition||voiceRecorder||realtimeConnecting)return;
+ if(!voiceMode||waitingVoice||voiceSpeaking||voiceBarge||send.disabled||recognition||voiceRecorder||realtimeConnecting)return;
  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR||voiceUseRecorder||androidVoiceCapture()){captureVoice();return}
  const generation=voiceGeneration,rec=new SR();recognition=rec;let spoken='',fallback=false,delivered=false;

@@ -51,6 +51,34 @@ function harness(){
  assert.equal(joined.requests.length,2,'next response is prepared while current buffer plays');
  started[0].onended({type:'ended'});await joined.flush();assert.equal(started.length,2,'normal ended event advances without replaying the previous sentence');
  joined.run('stopSpeaking()');await gapless;assert.equal(started[1].stopped,true);
+ // Full interruption: retain onset, stop playback and prefetch, send WAV, then answer.
+ const barge=harness();let processor,disconnected=0,trackStopped=0;
+ const stream={getAudioTracks:()=>[{readyState:'live'}],getTracks:()=>[{stop(){trackStopped++}}]};
+ barge.c.navigator.mediaDevices={getUserMedia:async()=>stream};
+ barge.c.window.AudioContext=class{
+  constructor(){this.state='running';this.sampleRate=48000;this.destination={}}
+  resume(){return Promise.resolve()}close(){return Promise.resolve()}
+  createMediaStreamSource(){return{connect(){},disconnect(){disconnected++}}}
+  createGain(){return{gain:{value:1},connect(){},disconnect(){disconnected++}}}
+  createScriptProcessor(){processor={connect(){},disconnect(){disconnected++}};return processor}
+ };
+ barge.c.FileReader=class{readAsDataURL(blob){barge.c.capturedBlob=blob;this.result='data:audio/wav;base64,UklGRg==';this.onload()}};
+ barge.c.fetch=async(url,options)=>{barge.requests.push({url,data:JSON.parse(options.body),signal:options.signal});if(url==='/api/voice'&&barge.requests.filter(r=>r.url===url).length===2)return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new Error('aborted'))));return url.includes('transcribe')?{ok:true,json:async()=>({text:'Espere, quero perguntar outra coisa.'})}:{ok:true,blob:async()=>new Blob(['audio'])}};
+ barge.c.answer=long;barge.run('voiceMode=true');const interrupted=barge.run('speak(answer)');await barge.flush();
+ const frame=value=>processor.onaudioprocess?.({inputBuffer:{getChannelData:()=>new Float32Array(2048).fill(value)}});
+ for(let i=0;i<5;i++)frame(0);frame(.2);frame(0);
+ assert.equal(barge.run('voiceSpeaking'),true,'a single impact must not interrupt');
+ for(let i=0;i<4;i++)frame(.1);
+ assert.equal(barge.run('voiceSpeaking'),false,'sustained speech immediately stops the answer');
+ assert.ok(barge.requests.filter(r=>r.url==='/api/voice').at(-1).signal.aborted,'all prefetched speech is cancelled');
+ assert.equal(barge.run('voiceBarge.triggered'),true);barge.run('scheduleVoiceListen()');
+ assert.equal([...barge.timers.values()].some(t=>t.delay===300),false,'normal listener cannot compete with interruption capture');
+ for(let i=0;i<18;i++)frame(0);await barge.flush();await interrupted;
+ assert.equal(barge.c.received,'Espere, quero perguntar outra coisa.');
+ assert.equal(barge.requests.filter(r=>r.url==='/api/transcribe').length,1);
+ const wave=Buffer.from(await barge.c.capturedBlob.arrayBuffer());assert.equal(wave.toString('ascii',0,4),'RIFF');assert.equal(wave.readUInt32LE(24),16000);
+ assert.ok(wave.subarray(44).some(v=>v!==0),'first syllables are preserved in the WAV');assert.ok(disconnected>=3);
+ barge.events.pagehide();assert.equal(trackStopped,1);
  const denied=harness();denied.run('toggleVoice()');denied.c.rec.onerror({error:'not-allowed'});assert.equal(denied.c.voiceMode,false);assert.match(denied.c.status.textContent,/Autorize/);
  // A late microphone permission response after stopping must release the stream.
  const stale=harness();let release;stale.c.navigator.mediaDevices={getUserMedia:()=>new Promise(r=>release=r)};stale.c.window.MediaRecorder=class{};
