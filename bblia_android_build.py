@@ -71,7 +71,11 @@ def build(project,sdk=None,jdk=None):
         compiled=output/'resources.zip';run('compilar recursos',[aapt,'compile','--dir',main/'res','-o',compiled]);link.append(compiled)
     if (main/'assets').is_dir():link.extend(['-A',main/'assets'])
     run('empacotar manifesto e recursos',link)
-    run('compilar Java',[javac,'-encoding','UTF-8','-source','8','-target','8','-proc:none','-bootclasspath',android,'-d',classes,*sources,*generated.rglob('*.java')])
+    # Android's API jar alone does not supply javac's LambdaMetafactory implementation.
+    # The SDK ships compile-time stubs for Java 8 lambdas; do not package those stubs.
+    lambda_stubs=env['tools']/'core-lambda-stubs.jar'
+    bootclasspath=os.pathsep.join([str(android)]+([str(lambda_stubs)] if lambda_stubs.is_file() else []))
+    run('compilar Java',[javac,'-encoding','UTF-8','-source','8','-target','8','-proc:none','-bootclasspath',bootclasspath,'-d',classes,*sources,*generated.rglob('*.java')])
     jar=output/'classes.jar'
     with zipfile.ZipFile(jar,'w',zipfile.ZIP_DEFLATED) as z:
         for f in classes.rglob('*.class'):z.write(f,f.relative_to(classes).as_posix())
