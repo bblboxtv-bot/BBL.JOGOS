@@ -340,6 +340,8 @@ class CommanderClient:
         for pid in finished:self.pending_processes.discard(int(pid))
         exit_match=re.search(r'Process completed with exit code\s+(-?\d+)',output,re.I)
         if exit_match and name=='read_process_output':self.pending_processes.discard(arguments.get('pid'))
+        if name=='force_terminate' and not result.get('isError',False) and state not in ('pending','queued','running','executing'):
+            self.pending_processes.discard(arguments.get('pid'))
         pending=bool(state in ('pending','queued','running','executing') or (name=='start_process' and not finished and self.pending_processes))
         confirmed=not result.get('isError',False) and not pending and not (exit_match and int(exit_match[1])!=0)
         self.actions.append({'tool': name, 'confirmed': confirmed,'pending':pending})

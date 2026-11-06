@@ -40,5 +40,9 @@ run("computerCache={access_token:'secret-private',device_id:'selected',expires_a
  context.show=()=>{context.shown=true};
  run("showComputerConnection=async()=>show();computerCache={access_token:'saved',device_id:'selected',expires_at:Date.now()+3600000};computerPost=async()=>({result:{devices:[{id:'selected',name:'MEU-PC',online:false},{id:'other',name:'OUTRO-PC',online:true}]}})");
  assert.equal(await run('connectRequestedComputer()'),false);assert.equal(run('computerCache.device_id'),'selected','offline selected computer never silently switches to another');
+ assert.equal(await run('computerReady()'),false,'a saved token is insufficient when the selected computer is offline');
+ assert.ok(run('computerConnectionIssue').includes('offline'));
+ run("computerDeviceCheck=null;computerPost=async()=>({result:{devices:[{id:'selected',name:'MEU-PC',online:true}]}})");
+ assert.equal(await run('computerReady()'),true,'online selected device passes readiness');
  console.log('PASS: computer intent routing, device parsing, private request credentials excluded from saved payload');
 })().catch(e=>{console.error(e);process.exitCode=1});

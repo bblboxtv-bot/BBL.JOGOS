@@ -2,6 +2,7 @@
 const COMPUTER_KEY='desktop-commander-private';
 const OAUTH_FLOW='bblia-commander-oauth';
 let computerCache=null,computerRefreshPromise=null;
+let computerDeviceCheck=null,computerConnectionIssue='';
 async function saveComputer(connection){
  if(!db)throw Error('O navegador não disponibilizou armazenamento para esta conexão.');
  await new Promise((resolve,reject)=>{const tx=db.transaction('work','readwrite');const store=tx.objectStore('work');
@@ -48,7 +49,20 @@ async function computerConnection(){
  return computerRefreshPromise;
 }
 async function computerReady(){
- try{const c=await computerConnection();return !!(c?.access_token&&c.device_id)}catch(error){notify(error.message);return false}
+ computerConnectionIssue='';
+ try{
+  const c=await computerConnection();
+  if(!c?.access_token||!c.device_id){computerConnectionIssue='Conecte o Commander e selecione seu computador na BBLIA.';return false}
+  if(computerDeviceCheck?.id===c.device_id&&Date.now()-computerDeviceCheck.at<10000){
+   if(!computerDeviceCheck.online)computerConnectionIssue='Seu computador está offline. O pedido foi preservado; abra o Commander no computador para continuar.';
+   return computerDeviceCheck.online;
+  }
+  const devices=computerDevices((await computerPost('devices',{access_token:c.access_token})).result);
+  const device=devices.find(d=>d.id===c.device_id),online=!!device?.online;
+  computerDeviceCheck={id:c.device_id,at:Date.now(),online};
+  if(!online)computerConnectionIssue='Seu computador está offline ou indisponível nesta conta. O pedido foi preservado; abra o Commander no computador para continuar.';
+  return online;
+ }catch(error){computerConnectionIssue=error.message;notify(error.message);return false}
 }
 function computerConnectIntent(text){
  const clean=String(text).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -187,5 +201,6 @@ async function initComputerConnection(){
   const url=new URL(location.href);url.searchParams.delete('connect_computer');window.history.replaceState(null,'',url.pathname+url.search+url.hash);
   await connectRequestedComputer();
  }
+ else await resumeQueuedComputerTask();
 }
 initComputerConnection();

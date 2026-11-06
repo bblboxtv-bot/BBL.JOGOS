@@ -235,7 +235,7 @@ sendMessage=async function(){
   let useComputer=false;
   if(explicitComputer||wantsAndroidBuild(text)){
    useComputer=typeof computerReady==='function'&&await computerReady();
-   if(!useComputer){if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);notify('Pedido salvo. Conecte o computador para compilar e entregar o APK ou executar a tarefa.');if(typeof showComputerConnection==='function')await showComputerConnection();return}
+   if(!useComputer){if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);const reason=typeof computerConnectionIssue==='string'&&computerConnectionIssue?computerConnectionIssue:'Pedido salvo. Conecte o computador para compilar e entregar o APK ou executar a tarefa.';notify(reason);if(typeof showComputerConnection==='function')await showComputerConnection(reason);return}
   }
   return runAutonomousWork(text,selected,{useComputer});
  }
