@@ -258,8 +258,21 @@ def run_job(job, safe, data, files):
                            'input': inputs, 'tools': tools, 'max_output_tokens': 8000}
             if gemini:
                 from bblia_gemini import GeminiError
-                try:result = gemini.respond(payload)
-                except GeminiError as exc:raise WorkError(str(exc),503) from exc
+                try:
+                    result = gemini.respond(payload)
+                except GeminiError as exc:
+                    # Paid fallback is opt-in at deployment level and limited to
+                    # an initial quota failure, avoiding replay of partial jobs.
+                    quota = 'limite' in str(exc).lower() and 'gemini' in str(exc).lower()
+                    allowed = os.getenv('BBLIA_AUTO_OPENAI_FALLBACK', '').lower() == 'true'
+                    if not (quota and allowed and step == 0):
+                        raise WorkError(str(exc), 503) from exc
+                    key = os.getenv('OPENAI_API_KEY', '').strip()
+                    if not key:
+                        raise WorkError('Gemini sem cota; OpenAI alternativa sem chave configurada.', 503) from exc
+                    progress(job, 'Cota Gemini atingida; usando OpenAI autorizada')
+                    gemini = None
+                    result = request_model(payload, key)
             else:
                 result = request_model(payload, key)
             if job['cancelled']:
