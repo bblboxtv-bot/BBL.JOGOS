@@ -39,7 +39,10 @@ def cookie_value(sid, age=TTL):
 def status(cookie):
     client,secret,redirect=config(); s=session(cookie)
     configured=bool(client and secret and redirect.startswith('https://'))
-    return {'configured': configured, 'connected': bool(s and s.get('token')), 'user': s.get('user') if s else None,
+    user = s.get('user') if s and s.get('token') else None
+    owner_email = os.getenv('BBLIA_ADMIN_EMAIL', 'bbl.boxtv@gmail.com').strip().casefold()
+    role = ('admin' if user and user.get('email', '').strip().casefold() == owner_email else 'client') if user else 'guest'
+    return {'configured': configured, 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
