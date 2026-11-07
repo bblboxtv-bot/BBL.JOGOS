@@ -21,14 +21,14 @@ function tvReportText(job){
  }
  return (result.results||[]).map(r=>r.package+': '+r.message).join('\n')||result.error||('Comando '+job.status+'.');
 }
-async function tvWait(job,bubble){
+async function tvWait(job,bubble,{speak=true}={}){
  const end=Date.now()+120000;
  while(Date.now()<end){
   const current=await tvCall('job',{id:job.id});
   if(['completed','partial','failed'].includes(current.status)){
    const answer=tvReportText(current);paintResponse(bubble,answer,[],[]);
    if(current.result?.report?.apps){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Aplicativos e pacotes';details.append(summary);const pre=document.createElement('pre');pre.textContent=current.result.report.apps.map(a=>a.label+' — '+a.package+(a.system?' [sistema]':'')).join('\n');details.append(pre);bubble.append(details)}
-   history.push({role:'assistant',content:answer});await saveChat();tvPending=null;await tvStore('tv-pending',null);await replyByVoice(answer);return {status:current.status,summary:answer};
+   history.push({role:'assistant',content:answer});await saveChat();tvPending=null;await tvStore('tv-pending',null);if(speak)await replyByVoice(answer);return {status:current.status,summary:answer};
   }
   bubble.textContent=current.status==='pending'?'Comando enviado ao painel. Aguardando a TV Box conectar...':'A TV Box está executando o comando...';await new Promise(r=>setTimeout(r,2000));
  }
@@ -39,7 +39,7 @@ async function runTVCommand(text,{fromVoice=false}={}){
  if(send.disabled)throw Error('Aguarde a tarefa atual terminar.');
  send.disabled=true;waitingVoice=true;if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();
  const bubble=add('assistant','Enviando comando para a TV Box...');
- try{const job=await tvCall('command',{text});tvPending=job;await tvStore('tv-pending',job);return await tvWait(job,bubble)}
+ try{const job=await tvCall('command',{text});tvPending=job;await tvStore('tv-pending',job);return await tvWait(job,bubble,{speak:!fromVoice})}
  catch(error){bubble.textContent=error.message;throw error}
  finally{send.disabled=false;waitingVoice=false;if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();if(voiceMode)scheduleVoiceListen(500)}
 }
