@@ -380,7 +380,7 @@ if(typeof openSection==='function'){
 // The main microphone streams speech directly; dictation keeps the recorder above.
 let realtimeChannel=null,realtimeAbort=null,realtimeStarted=0,realtimeWatchdog=null;
 let realtimeDisconnectedTimer=null;
-const realtimeSeen=new Set(),realtimeTranscripts=new Map();
+const realtimeSeen=new Set(),realtimeTranscripts=new Map(),realtimeOrder=new Map();
 function sendRealtimeEvent(channel,event){
  if(channel?.readyState!=='open')return false;
  channel.send(JSON.stringify(event));return true;
@@ -404,14 +404,21 @@ function realtimeTranscript(event,role,final){
  let entry=realtimeTranscripts.get(key);
  const text=final?(event.transcript||event.text||entry?.text||''):(entry?.text||'')+(event.delta||'');
  if(!text.trim())return;
- if(!entry){entry={bubble:add(role,text),text:'',saved:false};realtimeTranscripts.set(key,entry)}
+ if(!realtimeOrder.has(event.item_id))realtimeOrder.set(event.item_id,realtimeOrder.size);
+ if(!entry){entry={bubble:add(role,text),text:'',saved:false,order:realtimeOrder.get(event.item_id)};realtimeTranscripts.set(key,entry)}
  entry.text=text;entry.bubble.textContent=text;
- if(final&&!entry.saved){entry.saved=true;entry.message={role,content:text};history.push(entry.message);saveChat()}
+ if(final&&!entry.saved){
+  const next=Array.from(realtimeTranscripts.values()).filter(e=>e.saved&&e.order>entry.order).sort((a,b)=>a.order-b.order)[0];
+  entry.saved=true;entry.message={role,content:text};
+  if(next&&history.includes(next.message)){history.splice(history.indexOf(next.message),0,entry.message);if(next.bubble.parentNode===feed)feed.insertBefore(entry.bubble,next.bubble)}
+  else history.push(entry.message);saveChat();
+ }
  else if(final&&entry.message){entry.message.content=text;saveChat()}
 }
 async function handleRealtimeEvent(event,channel){
  if(channel!==realtimeChannel)return;
  const type=event.type;
+ if(type==='conversation.item.added'&&event.item?.type==='message'&&!realtimeOrder.has(event.item.id))realtimeOrder.set(event.item.id,realtimeOrder.size);
  if(type==='session.created'||type==='session.updated')status.textContent='🎙️ Pode falar. Conversa OpenAI em tempo real.';
  else if(type==='input_audio_buffer.speech_started'){
   voiceSpeaking=false;waitingVoice=false;status.textContent='🎙️ Estou ouvindo você.';
@@ -445,7 +452,7 @@ endRealtime=function(){
  if(realtimeChannel){realtimeChannel.onmessage=realtimeChannel.onopen=realtimeChannel.onclose=null;try{realtimeChannel.close()}catch(e){}realtimeChannel=null}
  if(pc){pc.onconnectionstatechange=pc.ontrack=null;pc.close()}
  if(realtimeAudio){realtimeAudio.pause();realtimeAudio.srcObject=null;realtimeAudio=null}
- realtimeStarted=0;realtimeTranscripts.clear();realtimeSeen.clear();
+ realtimeStarted=0;voiceSpeaking=false;realtimeTranscripts.clear();realtimeSeen.clear();realtimeOrder.clear();
  endRecordedVoice();
 };
 function stopRealtimeWithError(message){

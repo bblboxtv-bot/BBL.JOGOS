@@ -5,7 +5,7 @@ function setup(){
  const c={console,setTimeout,clearTimeout,AbortController,Intl,Date,JSON,Map,Set,Number,Object,String,
   voiceMode:true,voiceGeneration:0,realtimePC:null,realtimeConnecting:false,realtimeAudio:null,
   voiceCapture:{getAudioTracks:()=>tracks},voiceSpeaking:false,waitingVoice:false,send:{disabled:false},
-  workspace:{preferences:{}},history:[],status:{textContent:''},muted:false,unlockedAudio:null,
+  workspace:{preferences:{}},history:[],feed:{insertBefore(){}},status:{textContent:''},muted:false,unlockedAudio:null,
   endRealtime(){c.voiceGeneration++;for(const t of c.voiceCapture?.getAudioTracks()||[])t.stop();c.voiceCapture=null;c.waitingVoice=false},
   stopSpeaking(){},setVoiceUI(){},toggleVoice(){},scheduleVoiceListen(){events.push('listen')},
   replyByVoice(){events.push('tts')},add(role,text){const b={role,textContent:text};bubbles.push(b);return b},
@@ -22,6 +22,11 @@ function setup(){
  assert.equal(c.history.length,2);assert.equal(bubbles.length,2);assert.equal(c.history[1].content,'Oi!');
  run("recordRealtimeUsage({id:'r1',usage:{input_tokens:10,output_tokens:4}});recordRealtimeUsage({id:'r1',usage:{input_tokens:10,output_tokens:4}})");
  const usage=Object.values(c.workspace.preferences.voiceUsage)[0];assert.equal(usage.responses,1);assert.equal(usage.input,10);
+ await run("handleRealtimeEvent({type:'conversation.item.added',item:{id:'u2',type:'message'}},realtimeChannel)");
+ await run("handleRealtimeEvent({type:'conversation.item.added',item:{id:'a2',type:'message'}},realtimeChannel)");
+ await run("handleRealtimeEvent({type:'response.output_audio_transcript.done',item_id:'a2',transcript:'Resposta'},realtimeChannel)");
+ await run("handleRealtimeEvent({type:'conversation.item.input_audio_transcription.completed',item_id:'u2',transcript:'Pergunta'},realtimeChannel)");
+ assert.equal(c.history[2].role,'user');assert.equal(c.history[3].role,'assistant');
  c.send.disabled=true;run('syncRealtimeMicrophone()');assert.equal(tracks[0].enabled,false);
  c.send.disabled=false;run('syncRealtimeMicrophone()');assert.equal(tracks[0].enabled,true);
  await run("handleRealtimeEvent({type:'response.function_call_arguments.done',name:'fazer_trabalho'},realtimeChannel)");assert(events.includes('work'));
