@@ -55,13 +55,16 @@ def mega_sena(concurso=None):
  with urllib.request.urlopen(req,timeout=12) as res:data=json.load(res)
  return {'concurso':data.get('numero'),'data':data.get('dataApuracao'),'dezenas':data.get('listaDezenas'),'acumulou':data.get('acumulado'),'proximo_concurso':data.get('numeroConcursoProximo'),'proximo_sorteio':data.get('dataProximoConcurso'),'fonte':'CAIXA Loterias'}
 class Handler(BaseHTTPRequestHandler):
- def require_account(self, admin=False):
+ def require_account(self, admin=False, feature=None):
   account=google.status(self.headers.get('Cookie',''))
   if not account.get('authenticated'):
    self.reply(401,{'error':'Entre com sua conta Google para utilizar a BBLIA.','login_required':True})
    return False
   if admin and account.get('role')!='admin':
    self.reply(403,{'error':'Esta função é exclusiva do administrador da BBLIA.'})
+   return False
+  if feature and account.get('role')!='admin':
+   self.reply(403,{'error':'Este recurso ainda não está liberado para contas de clientes.','feature':feature})
    return False
   return True
  def log_message(self,format,*args):
@@ -127,6 +130,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   path=urlsplit(self.path).path
   if path.startswith('/api/') and path not in ('/api/account','/api/google/status') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account','/api/google/status','/api/sync','/api/weather','/api/lottery') and not self.require_account(feature=path):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
 
   if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
@@ -302,6 +306,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   path=urlsplit(self.path).path
   if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/sync') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
