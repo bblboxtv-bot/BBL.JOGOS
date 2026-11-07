@@ -55,6 +55,15 @@ def mega_sena(concurso=None):
  with urllib.request.urlopen(req,timeout=12) as res:data=json.load(res)
  return {'concurso':data.get('numero'),'data':data.get('dataApuracao'),'dezenas':data.get('listaDezenas'),'acumulou':data.get('acumulado'),'proximo_concurso':data.get('numeroConcursoProximo'),'proximo_sorteio':data.get('dataProximoConcurso'),'fonte':'CAIXA Loterias'}
 class Handler(BaseHTTPRequestHandler):
+ def require_account(self, admin=False):
+  account=google.status(self.headers.get('Cookie',''))
+  if not account.get('authenticated'):
+   self.reply(401,{'error':'Entre com sua conta Google para utilizar a BBLIA.','login_required':True})
+   return False
+  if admin and account.get('role')!='admin':
+   self.reply(403,{'error':'Esta função é exclusiva do administrador da BBLIA.'})
+   return False
+  return True
  def log_message(self,format,*args):
   safe=tuple(re.sub(r'(/api/apk/(?:upload|download)/)[^ /?\"]+',r'\1[arquivo]',re.sub(r'(/(?:computer|google)-callback)\?[^ ]*',r'\1?[autorizacao]',arg)) if isinstance(arg,str) else arg for arg in args)
   super().log_message(format,*safe)
@@ -116,6 +125,8 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,OSError) as exc:return self.reply(400,{'error':str(exc)[:300]})
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
+  path=urlsplit(self.path).path
+  if path.startswith('/api/') and path not in ('/api/account','/api/google/status') and not self.require_account():return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
 
   if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
@@ -289,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    ZIP_SLOTS.release()
  def do_POST(self):
+  path=urlsplit(self.path).path
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout') and not self.require_account():return
+  if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
     length=int(self.headers.get('Content-Length','0'))
