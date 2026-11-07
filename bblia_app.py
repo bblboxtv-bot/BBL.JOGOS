@@ -1,3 +1,4 @@
+import bblia_tv as tv_remote
 import bblia_apk_delivery as apk_delivery
 from bblia_speech import synthesize, transcribe, SpeechError
 import bblia_documents as documents
@@ -143,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path.startswith('/api/media/jobs/'):
    try:return self.reply(200,get_job(urlsplit(self.path).path.rsplit('/',1)[-1]))
    except MediaError as exc:return self.reply(exc.status,{'error':str(exc)})
-  if urlsplit(self.path).path in ('/bblia_work.js','/bblia_voice.js','/bblia_agent.js','/bblia_computer.js'):
+  if urlsplit(self.path).path in ('/bblia_work.js','/bblia_voice.js','/bblia_agent.js','/bblia_computer.js','/bblia_tv.js'):
    body=(BASE/urlsplit(self.path).path.lstrip('/')).read_bytes()
    self.send_response(200);self.send_header('Content-Type','application/javascript; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if urlsplit(self.path).path in ('/','/index.html','/computer-callback'):
@@ -216,6 +217,8 @@ class Handler(BaseHTTPRequestHandler):
    session['session']['tools']=[{'type':'function','name':'criar_midia','description':'Criar uma imagem, foto, logomarca ou vídeo e exibir na conversa','parameters':{'type':'object','properties':{'kind':{'type':'string','enum':['image','video']},'prompt':{'type':'string','description':'Descrição visual completa, até 900 caracteres'}},'required':['kind','prompt'],'additionalProperties':False}}]
    session['session']['tools'].append({'type':'function','name':'fazer_trabalho','description':'Criar ou alterar um painel, PDV, site, sistema, aplicativo, projeto ou tarefa no computador e na TV Box a partir do pedido e dos anexos da conversa. Executa etapas e entrega arquivos.','parameters':{'type':'object','properties':{'pedido':{'type':'string','description':'Pedido completo preservando os requisitos do usuário'}},'required':['pedido'],'additionalProperties':False}})
    session['session']['instructions']+=' Para criar ou alterar sistemas, painéis, PDV, sites, código ou aplicativos, ou executar tarefas no computador ou TV Box, use fazer_trabalho. A interface tem os anexos de referência da conversa. Escolha detalhes comuns sem perguntar e aguarde o resultado real antes de confirmar entrega.'
+   session['session']['tools'].append({'type':'function','name':'comando_tvbox','description':'Diagnosticar a TV Box vinculada ou desinstalar aplicativos pelo nome ou pacote exato, remotamente pelo painel, sem depender do computador. Não use para tarefas no Windows.','parameters':{'type':'object','properties':{'pedido':{'type':'string','description':'Pedido de diagnóstico ou desinstalação preservando nomes e pacotes exatos'}},'required':['pedido'],'additionalProperties':False}})
+   session['session']['instructions']+=' Para diagnóstico ou desinstalação na TV Box vinculada, use comando_tvbox; a ferramenta informa se há vínculo e retorna execução confirmada. Não afirme diagnóstico completo de hardware nem conclusão de comando pendente.'
    session['session']['tool_choice']='auto'
    req=urllib.request.Request('https://api.openai.com/v1/realtime/client_secrets',data=json.dumps(session).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')
    with urllib.request.urlopen(req,timeout=15) as res:data=json.load(res)
@@ -286,6 +289,13 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    ZIP_SLOTS.release()
  def do_POST(self):
+  if urlsplit(self.path).path.startswith('/api/tv/'):
+   try:
+    length=int(self.headers.get('Content-Length','0'))
+    if not 1<=length<=12000:return self.reply(413,{'error':'Pedido inválido'})
+    return self.reply(200,tv_remote.relay(urlsplit(self.path).path.rsplit('/',1)[-1],json.loads(self.rfile.read(length))))
+   except tv_remote.TVError as exc:return self.reply(exc.status,{'error':str(exc)})
+   except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
   if urlsplit(self.path).path.startswith('/api/apk/upload/'):return self.receive_compiled_apk()
   if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
@@ -468,6 +478,7 @@ if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
 
 
 

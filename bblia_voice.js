@@ -430,7 +430,8 @@ async function handleRealtimeEvent(event,channel){
  else if(type==='response.output_audio_transcript.delta'||type==='response.audio_transcript.delta'||type==='response.output_text.delta')realtimeTranscript(event,'assistant',false);
  else if(type==='response.output_audio_transcript.done'||type==='response.audio_transcript.done'||type==='response.output_text.done')realtimeTranscript(event,'assistant',true);
  else if(type==='response.function_call_arguments.done'){
-  if(event.name==='fazer_trabalho')await handleRealtimeWork(event,channel);
+  if(event.name==='comando_tvbox'&&typeof handleRealtimeTV==='function')await handleRealtimeTV(event,channel);
+  else if(event.name==='fazer_trabalho')await handleRealtimeWork(event,channel);
   else if(event.name==='criar_midia')await handleRealtimeMedia(event,channel);
   else{
    sendRealtimeEvent(channel,{type:'conversation.item.create',item:{type:'function_call_output',call_id:event.call_id,output:JSON.stringify({error:'Ferramenta não disponível.'})}});
@@ -503,5 +504,6 @@ const scheduleRecordedVoice=scheduleVoiceListen;
 scheduleVoiceListen=function(delay){if(!realtimePC&&!realtimeConnecting)scheduleRecordedVoice(delay)};
 const replyRecordedVoice=replyByVoice;
 replyByVoice=async function(answer){if(realtimePC){waitingVoice=false;syncRealtimeMicrophone();return}return replyRecordedVoice(answer)};
+
 
 
