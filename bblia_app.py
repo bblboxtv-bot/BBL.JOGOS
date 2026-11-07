@@ -5,6 +5,7 @@ import bblia_documents as documents
 import bblia_runtime as runtime
 import bblia_sync as sync
 import bblia_google as google
+import bblia_usage as usage
 import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
@@ -129,6 +130,11 @@ class Handler(BaseHTTPRequestHandler):
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
   path=urlsplit(self.path).path
+  if path=='/api/usage':
+   if not self.require_account():return
+   account=google.status(self.headers.get('Cookie',''))
+   try:return self.reply(200,usage.usage(account['user']['id']) if account['role']!='admin' else {'role':'admin','unlimited':True})
+   except (RuntimeError,OSError):return self.reply(503,{'error':'Controle de cotas indisponível.'})
   if path.startswith('/api/') and path not in ('/api/account','/api/google/status') and not self.require_account():return
   if path.startswith('/api/') and path not in ('/api/account','/api/google/status','/api/sync','/api/weather','/api/lottery') and not self.require_account(feature=path):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
@@ -306,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   path=urlsplit(self.path).path
   if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout') and not self.require_account():return
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/sync') and not self.require_account(feature=path):return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/sync','/api/chat') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
@@ -365,6 +371,15 @@ class Handler(BaseHTTPRequestHandler):
    provider=str(data.get('provider') or 'gemini').lower()
    if provider not in ('gemini','openai'):return self.reply(400,{'error':'Provedor de IA inválido.'})
    if not IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Servidor ocupado. Tente novamente em instantes.'})
+   account=google.status(self.headers.get('Cookie',''))
+   if account['role']!='admin':
+    if provider!='gemini':
+     IN_FLIGHT.release();return self.reply(403,{'error':'Este provedor não está disponível no plano gratuito.'})
+    try:
+     if not usage.reserve_text(account['user']['id']):
+      IN_FLIGHT.release();return self.reply(429,{'error':'Limite gratuito de 20 mensagens por dia atingido.','quota_exceeded':True})
+    except (RuntimeError,OSError,ValueError):
+     IN_FLIGHT.release();return self.reply(503,{'error':'Controle de cotas indisponível. Tente mais tarde.'})
    try:
     if provider=='gemini':
      from bblia_gemini import responder, GeminiError
