@@ -79,7 +79,7 @@ def settle_verified(order_id,provider_ref,verified=False):
    if status=='paid':
     if old_ref!=provider_ref:raise WalletError('Pagamento ja conciliado.',409)
     con.commit();return {'status':'paid','credited':False}
-   if status!='awaiting_provider':raise WalletError('Pedido indisponivel.',409)
+   if status!='awaiting_provider' or (old_ref and old_ref!=provider_ref):raise WalletError('Pedido indisponivel ou referencia diferente.',409)
    _move(con,user,credits,'pix_verified','payment:'+order_id)
    con.execute("UPDATE payments SET status='paid',provider_ref=?,paid_at=? WHERE id=?",(provider_ref,int(time.time()),order_id))
    con.commit();return {'status':'paid','credited':True}
@@ -103,4 +103,27 @@ def spend(user_id,credits,ref):
    con.commit();return {'charged':True,**balance(user_id)}
   except Exception:
    con.rollback();raise
+  finally:con.close()
+
+def provider_link(order_id,provider_ref):
+ if not isinstance(provider_ref,str) or not provider_ref or len(provider_ref)>200:raise WalletError('Referencia invalida.')
+ with LOCK:
+  con=_db()
+  try:
+   con.execute('BEGIN IMMEDIATE')
+   row=con.execute('SELECT status,provider_ref FROM payments WHERE id=?',(order_id,)).fetchone()
+   if not row or row[0]!='awaiting_provider':raise WalletError('Pedido indisponivel.',409)
+   if row[1] and row[1]!=provider_ref:raise WalletError('Referencia ja vinculada.',409)
+   con.execute('UPDATE payments SET provider_ref=? WHERE id=?',(provider_ref,order_id))
+   con.commit()
+  except Exception:con.rollback();raise
+  finally:con.close()
+
+def order(order_id):
+ with LOCK:
+  con=_db()
+  try:
+   row=con.execute('SELECT id,user_id,amount_cents,credits,status,provider_ref FROM payments WHERE id=?',(order_id,)).fetchone()
+   if not row:raise WalletError('Pedido nao encontrado.',404)
+   return dict(zip(('id','user_id','amount_cents','credits','status','provider_ref'),row))
   finally:con.close()
