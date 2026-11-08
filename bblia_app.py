@@ -484,8 +484,8 @@ refresh();</script></html>""".encode()
    if not IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Servidor ocupado. Tente novamente em instantes.'})
    account=google.status(self.headers.get('Cookie',''))
    if account['role']!='admin':
-    if provider!='gemini':
-     IN_FLIGHT.release();return self.reply(403,{'error':'Este provedor não está disponível no plano gratuito.'})
+    if provider=='openai' and data.get('paid_authorized') is not True:
+     IN_FLIGHT.release();return self.reply(403,{'error':'Autorize o uso de créditos OpenAI antes de enviar esta mensagem.'})
     try:
      if not usage.reserve_text(account['user']['id']):
       IN_FLIGHT.release();return self.reply(429,{'error':'Limite gratuito de 20 mensagens por dia atingido.','quota_exceeded':True})
