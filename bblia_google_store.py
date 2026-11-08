@@ -67,3 +67,18 @@ def load_by_state(state):
         if value.get("state")!=state:return None
         return value
     finally:conn.close()
+
+def consume_state(state):
+    """Atomically consume an OAuth state exactly once, independent of browser cookies."""
+    cipher=_cipher()
+    if not cipher or not state or len(state)>256:return None
+    conn=_connection()
+    try:
+        row=conn.execute("DELETE FROM bblia_google_sessions WHERE state_hash=? AND expires>? RETURNING payload",(hashlib.sha256(state.encode()).hexdigest(),time.time())).fetchone()
+        conn.commit()
+        if not row:return None
+        from cryptography.fernet import InvalidToken
+        try:value=json.loads(cipher.decrypt(row[0].encode()).decode())
+        except (InvalidToken,ValueError,TypeError):return None
+        return value if value.get("state")==state else None
+    finally:conn.close()
