@@ -17,12 +17,15 @@ def main():
   assert auth.session(cookie) is None
   print('BBLIA_STAGE6_AUTH_RESULT=PASS',flush=True)
  except Exception as e:
-  print('BBLIA_STAGE6_AUTH_RESULT=FAIL ('+type(e).__name__+')',flush=True)
+  print('BBLIA_STAGE6_AUTH_RESULT=FAIL ('+type(e).__name__+': '+str(e).split('\\n')[0][:160]+')',flush=True)
  finally:
   if old is None:os.environ.pop('BBLIA_EMAIL_REGISTRATION',None)
   else:os.environ['BBLIA_EMAIL_REGISTRATION']=old
-  with psycopg.connect(os.environ['BBLIA_DATABASE_URL']) as db:
-   db.execute('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email=%s)',(email,))
-   db.execute('DELETE FROM users WHERE email=%s',(email,))
+  try:
+   with psycopg.connect(os.environ['BBLIA_DATABASE_URL']) as db:
+    db.execute('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email=%s)',(email,))
+    db.execute('DELETE FROM users WHERE email=%s',(email,))
+  except psycopg.Error:
+   print('BBLIA_STAGE6_AUTH_CLEANUP=SKIPPED',flush=True)
 if os.getenv('BBLIA_STAGE6_AUTH_SMOKE')=='1' and os.getenv('BBLIA_DATABASE_URL'):
  main()
