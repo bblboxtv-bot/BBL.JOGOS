@@ -506,6 +506,14 @@ refresh();</script></html>""".encode()
     if data.get('paid_authorized') is not True:return self.reply(400,{'error':'O uso pago da OpenAI exige autorização explícita nesta tarefa.'})
     key=os.getenv('OPENAI_API_KEY','')
     if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})
+    # Paid OpenAI chat: server-side atomic debit, enabled only after price approval.
+    # Admin account retains its existing validated behavior.
+    if account['role']!='admin' and os.getenv('BBLIA_ENFORCE_CHAT_CREDITS')=='1':
+     import bblia_credit_gate as credit_gate
+     try:
+      credit_gate.charge(account['user']['id'],'chat',secrets.token_urlsafe(18),data.get('paid_authorized'))
+     except credit_gate.CreditGateError as exc:
+      return self.reply(exc.status,{'error':str(exc)})
     self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))
    finally:
     IN_FLIGHT.release()
