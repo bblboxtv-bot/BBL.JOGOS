@@ -5,6 +5,7 @@ import bblia_documents as documents
 import bblia_runtime as runtime
 import bblia_sync as sync
 import bblia_google as google
+import bblia_usage as usage
 import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
@@ -55,6 +56,18 @@ def mega_sena(concurso=None):
  with urllib.request.urlopen(req,timeout=12) as res:data=json.load(res)
  return {'concurso':data.get('numero'),'data':data.get('dataApuracao'),'dezenas':data.get('listaDezenas'),'acumulou':data.get('acumulado'),'proximo_concurso':data.get('numeroConcursoProximo'),'proximo_sorteio':data.get('dataProximoConcurso'),'fonte':'CAIXA Loterias'}
 class Handler(BaseHTTPRequestHandler):
+ def require_account(self, admin=False, feature=None):
+  account=google.status(self.headers.get('Cookie',''))
+  if not account.get('authenticated'):
+   self.reply(401,{'error':'Entre com sua conta Google para utilizar a BBLIA.','login_required':True})
+   return False
+  if admin and account.get('role')!='admin':
+   self.reply(403,{'error':'Esta função é exclusiva do administrador da BBLIA.'})
+   return False
+  if feature and account.get('role')!='admin':
+   self.reply(403,{'error':'Este recurso ainda não está liberado para contas de clientes.','feature':feature})
+   return False
+  return True
  def log_message(self,format,*args):
   safe=tuple(re.sub(r'(/api/apk/(?:upload|download)/)[^ /?\"]+',r'\1[arquivo]',re.sub(r'(/(?:computer|google)-callback)\?[^ ]*',r'\1?[autorizacao]',arg)) if isinstance(arg,str) else arg for arg in args)
   super().log_message(format,*safe)
@@ -72,9 +85,16 @@ class Handler(BaseHTTPRequestHandler):
    if path=='/api/account':return self.google_reply(200,google.status(cookie))
    if path=='/api/sync' and self.command=='GET':return self.google_reply(200,sync.load(cookie))
    if path=='/api/google/status':return self.google_reply(200,google.status(cookie))
+   if path=='/mobile-login':
+    from urllib.parse import parse_qs
+    tx=parse_qs(urlsplit(self.path).query).get('tx',[''])[0]
+    result,new_cookie=google.mobile_browser_start(tx)
+    self.send_response(303);self.send_header('Location',result['url']);self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Content-Length','0');self.end_headers();return
    if path=='/google-callback':
     new_cookie=google.callback(cookie,urlsplit(self.path).query)
-    self.send_response(303);self.send_header('Location','/?google=connected');self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Length','0');self.end_headers();return
+    tx=google.mobile_complete(new_cookie)
+    target=('bblia://auth?tx='+tx) if tx else '/?google=connected'
+    self.send_response(303);self.send_header('Location',target);self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Length','0');self.end_headers();return
    google.check_origin(self.headers)
    if path in ('/api/google/disconnect','/api/account/logout'):
     result,new_cookie=google.disconnect(cookie,revoke=path!='/api/account/logout');return self.google_reply(200,result,new_cookie)
@@ -83,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):raise ValueError()
    if path=='/api/sync':return self.google_reply(200,sync.save(cookie,data))
+   if path=='/api/mobile/begin':return self.google_reply(200,google.mobile_begin())
+   if path=='/api/mobile/redeem':
+    result,new_cookie=google.mobile_redeem(data.get('transaction'),data.get('proof'))
+    return self.google_reply(200,result,new_cookie)
    if path=='/api/account/start':
     current=google.status(cookie)['services']
     services=list(dict.fromkeys(current+['login','sync']))
@@ -116,9 +140,17 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,OSError) as exc:return self.reply(400,{'error':str(exc)[:300]})
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
+  path=urlsplit(self.path).path
+  if path=='/api/usage':
+   if not self.require_account():return
+   account=google.status(self.headers.get('Cookie',''))
+   try:return self.reply(200,usage.usage(account['user']['id']) if account['role']!='admin' else {'role':'admin','unlimited':True})
+   except (RuntimeError,OSError):return self.reply(503,{'error':'Controle de cotas indisponível.'})
+  if path.startswith('/api/') and path not in ('/api/account','/api/google/status') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account','/api/google/status','/api/sync','/api/weather','/api/lottery') and not self.require_account(feature=path):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
 
-  if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/status','/google-callback','/mobile-login','/api/account','/api/sync'):return self.google_route()
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
   if urlsplit(self.path).path.startswith('/api/work/jobs/'):
    try:
@@ -148,7 +180,11 @@ class Handler(BaseHTTPRequestHandler):
    body=(BASE/urlsplit(self.path).path.lstrip('/')).read_bytes()
    self.send_response(200);self.send_header('Content-Type','application/javascript; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if urlsplit(self.path).path in ('/','/index.html','/computer-callback'):
-   self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
+   authenticated=google.status(self.headers.get('Cookie','')).get('authenticated',False)
+   if not authenticated:
+    page=b"""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA - Login</title><style>body{font:16px system-ui;background:#080d29;color:white;display:grid;place-items:center;min-height:95vh;margin:0}main{text-align:center;padding:28px;max-width:390px}h1{color:#e9b85d;font-size:44px}button{background:#e9b85d;color:#17152c;border:0;border-radius:12px;padding:15px 28px;font-weight:700;font-size:17px}p{line-height:1.6}</style><main id="bblia-login-gate"><h1>BBLIA</h1><p>Entre com sua conta Google para utilizar o aplicativo.</p><button id="login" type="button">Entrar com Google</button><p id="feedback" role="status"></p></main><script>document.getElementById('login').onclick=async()=>{const feedback=document.getElementById('feedback');feedback.textContent='Conectando...';try{const mobile=!!window.BBLAndroid;const r=await fetch(mobile?'/api/mobile/begin':'/api/account/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok||!(mobile?d.browser_url:d.url))throw Error(d.error||'Login indisponivel');if(mobile){sessionStorage.setItem('bblia_mobile_tx',d.transaction);sessionStorage.setItem('bblia_mobile_proof',d.proof);window.BBLAndroid.openLogin(d.browser_url)}else location.href=d.url}catch(e){feedback.textContent=e.message}};window.bbliaMobileReturn=async(tx)=>{const saved=sessionStorage.getItem('bblia_mobile_tx');const proof=sessionStorage.getItem('bblia_mobile_proof');if(!tx||tx!==saved||!proof)return;try{const r=await fetch('/api/mobile/redeem',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction:tx,proof})});if(!r.ok)throw Error('Nao foi possivel confirmar o login');sessionStorage.removeItem('bblia_mobile_tx');sessionStorage.removeItem('bblia_mobile_proof');location.replace('/')}catch(e){document.getElementById('feedback').textContent=e.message}}</script></html>"""
+   else:page=HTML
+   self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page)
   elif urlsplit(self.path).path=='/bblia-logo.jpg':
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
@@ -197,6 +233,8 @@ class Handler(BaseHTTPRequestHandler):
   except MediaError as exc:self.reply(exc.status,{'error':str(exc)})
   except (BrokenPipeError,ConnectionResetError):pass
  def do_HEAD(self):
+  path=urlsplit(self.path).path
+  if path.startswith('/api/') and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk(head=True)
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video(head=True)
   self.send_response(200 if urlsplit(self.path).path in ('/','/health') else 404);self.send_header('Content-Length','0');self.end_headers()
@@ -289,6 +327,10 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    ZIP_SLOTS.release()
  def do_POST(self):
+  path=urlsplit(self.path).path
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat') and not self.require_account(feature=path):return
+  if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
     length=int(self.headers.get('Content-Length','0'))
@@ -297,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
    except tv_remote.TVError as exc:return self.reply(exc.status,{'error':str(exc)})
    except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
   if urlsplit(self.path).path.startswith('/api/apk/upload/'):return self.receive_compiled_apk()
-  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path=='/api/zip/analyze':return self.zip_inspect()
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
@@ -346,11 +388,24 @@ class Handler(BaseHTTPRequestHandler):
    provider=str(data.get('provider') or 'gemini').lower()
    if provider not in ('gemini','openai'):return self.reply(400,{'error':'Provedor de IA inválido.'})
    if not IN_FLIGHT.acquire(blocking=False):return self.reply(429,{'error':'Servidor ocupado. Tente novamente em instantes.'})
+   account=google.status(self.headers.get('Cookie',''))
+   if account['role']!='admin':
+    if provider!='gemini':
+     IN_FLIGHT.release();return self.reply(403,{'error':'Este provedor não está disponível no plano gratuito.'})
+    try:
+     if not usage.reserve_text(account['user']['id']):
+      IN_FLIGHT.release();return self.reply(429,{'error':'Limite gratuito de 20 mensagens por dia atingido.','quota_exceeded':True})
+    except (RuntimeError,OSError,ValueError):
+     IN_FLIGHT.release();return self.reply(503,{'error':'Controle de cotas indisponível. Tente mais tarde.'})
    try:
     if provider=='gemini':
      from bblia_gemini import responder, GeminiError
      try:return self.reply(200,responder(safe,preferences=data.get("preferences"),project=data.get("project"),cookie=self.headers.get("Cookie",""),weather=weather_for,lottery=mega_sena))
-     except GeminiError as exc:return self.reply(503,{'error':str(exc)})
+     except GeminiError as exc:
+      if account['role']!='admin':
+       try:usage.refund_text(account['user']['id'])
+       except (RuntimeError,OSError):pass
+      return self.reply(503,{'error':str(exc)})
     if data.get('paid_authorized') is not True:return self.reply(400,{'error':'O uso pago da OpenAI exige autorização explícita nesta tarefa.'})
     key=os.getenv('OPENAI_API_KEY','')
     if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})

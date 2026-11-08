@@ -39,7 +39,10 @@ def cookie_value(sid, age=TTL):
 def status(cookie):
     client,secret,redirect=config(); s=session(cookie)
     configured=bool(client and secret and redirect.startswith('https://'))
-    return {'configured': configured, 'connected': bool(s and s.get('token')), 'user': s.get('user') if s else None,
+    user = s.get('user') if s and s.get('token') else None
+    owner_email = os.getenv('BBLIA_ADMIN_EMAIL', 'bbl.boxtv@gmail.com').strip().casefold()
+    role = ('admin' if user and user.get('email', '').strip().casefold() == owner_email else 'client') if user else 'guest'
+    return {'configured': configured, 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
@@ -115,6 +118,62 @@ def callback(cookie, query):
     c=SimpleCookie();c.load(cookie);old=c['__Host-bblia_google'].value;new=secrets.token_urlsafe(32)
     with LOCK:SESSIONS.pop(old,None);SESSIONS[new]=s
     return cookie_value(new)
+
+
+# Mobile handoff: browser authenticates, WebView redeems a single-use, proof-bound ticket.
+MOBILE = {}
+MOBILE_TTL = 300
+
+def mobile_begin():
+    tx=secrets.token_urlsafe(24);proof=secrets.token_urlsafe(32)
+    with LOCK:
+        for key in list(MOBILE):
+            if MOBILE[key]['expires']<=time.time():MOBILE.pop(key,None)
+        if len(MOBILE)>=500:raise GoogleError('Muitas autenticações simultâneas.',429)
+        MOBILE[tx]={'proof_hash':hashlib.sha256(proof.encode()).digest(),'expires':time.time()+MOBILE_TTL,'sid':None}
+    return {'transaction':tx,'proof':proof,'browser_url':'https://bblia-teste.onrender.com/mobile-login?tx='+quote(tx)}
+
+def mobile_browser_start(tx):
+    with LOCK:
+        entry=MOBILE.get(tx)
+        if not entry or entry['expires']<=time.time() or entry['sid'] is not None:
+            raise GoogleError('Solicitação de login expirada ou inválida.',403)
+    result,cookie=start('', ['login'])
+    sid=SimpleCookie();sid.load(cookie);sid=sid['__Host-bblia_google'].value
+    with LOCK:
+        entry=MOBILE.get(tx)
+        if not entry or entry['expires']<=time.time():raise GoogleError('Solicitação expirada.',403)
+        entry['pending_sid']=sid
+        SESSIONS[sid]['mobile_tx']=tx
+    return result,cookie
+
+def mobile_complete(cookie):
+    s=session(cookie)
+    if not s or not s.get('user') or not s.get('mobile_tx'):return None
+    tx=s.pop('mobile_tx')
+    sid=SimpleCookie();sid.load(cookie);sid=sid['__Host-bblia_google'].value
+    with LOCK:
+        entry=MOBILE.get(tx)
+        if not entry or entry['expires']<=time.time():return None
+        entry['sid']=sid
+    return tx
+
+def mobile_redeem(tx,proof):
+    if not isinstance(tx,str) or not isinstance(proof,str) or len(tx)>100 or len(proof)>150:
+        raise GoogleError('Solicitação inválida.',400)
+    with LOCK:
+        entry=MOBILE.get(tx)
+        if not entry or entry['expires']<=time.time() or not entry.get('sid'):
+            raise GoogleError('Login ainda não concluído ou expirado.',403)
+        if not secrets.compare_digest(hashlib.sha256(proof.encode()).digest(),entry['proof_hash']):
+            raise GoogleError('Comprovação de login inválida.',403)
+        sid=entry['sid'];s=SESSIONS.get(sid)
+        if not s or not s.get('user'):raise GoogleError('Sessão não encontrada.',403)
+        MOBILE.pop(tx,None)
+        new=secrets.token_urlsafe(32)
+        SESSIONS[new]=dict(s)
+        SESSIONS[new].pop('mobile_tx',None)
+    return {'authenticated':True},cookie_value(new)
 
 def access(cookie, service):
     s=session(cookie)
