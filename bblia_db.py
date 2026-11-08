@@ -3,8 +3,13 @@ Use BBLIA_DATABASE_URL (Render internal URL). No credentials in source code.
 """
 import os,sqlite3,re
 
-IntegrityError=sqlite3.IntegrityError
-Error=sqlite3.Error
+try:
+ import psycopg
+ IntegrityError=(sqlite3.IntegrityError,psycopg.errors.UniqueViolation)
+ Error=(sqlite3.Error,psycopg.Error)
+except ImportError:
+ IntegrityError=sqlite3.IntegrityError
+ Error=sqlite3.Error
 
 class PgConnection:
  def __init__(self,url,autocommit=False):
