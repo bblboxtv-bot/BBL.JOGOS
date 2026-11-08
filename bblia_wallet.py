@@ -49,7 +49,7 @@ def create_order(user_id,amount_cents):
   try:
    con.execute('INSERT INTO payments(id,user_id,amount_cents,credits,status,created_at) VALUES(?,?,?,?,?,?)',(order,user_id,amount_cents,_packages()[amount_cents],'awaiting_provider',int(time.time())))
   finally:con.close()
- return {'order_id':order,'status':'awaiting_provider','amount_cents':amount_cents,'credits':PACKAGES[amount_cents],'pix_available':False}
+ return {'order_id':order,'status':'awaiting_provider','amount_cents':amount_cents,'credits':_packages()[amount_cents],'pix_available':False}
 
 def history(user_id,limit=30):
  user_id=_id(user_id)
