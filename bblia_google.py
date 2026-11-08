@@ -59,7 +59,7 @@ def status(cookie):
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
-            'session_note':'Conexão privada neste navegador por até 12 horas. Reinícios do servidor exigem reconectar.'}
+            'session_note':('Sessão Google protegida no banco e recuperável após reinício.' if durable.enabled() else 'Conexão privada neste navegador por até 12 horas. Reinícios do servidor exigem reconectar.')}
 
 def check_origin(headers):
     expected=urlsplit(config()[2]); origin=headers.get('Origin','')
@@ -166,12 +166,14 @@ def mobile_browser_start(tx):
         if not entry or entry['expires']<=time.time():raise GoogleError('Solicitação expirada.',403)
         entry['pending_sid']=sid
         SESSIONS[sid]['mobile_tx']=tx
+        durable.save(sid,SESSIONS[sid])
     return result,cookie
 
 def mobile_complete(cookie):
     s=session(cookie)
     if not s or not s.get('user') or not s.get('mobile_tx'):return None
     tx=s.pop('mobile_tx')
+    durable.save(_sid_from_cookie(cookie),s)
     sid=SimpleCookie();sid.load(cookie);sid=sid['__Host-bblia_google'].value
     with LOCK:
         entry=MOBILE.get(tx)
@@ -188,12 +190,13 @@ def mobile_redeem(tx,proof):
             raise GoogleError('Login ainda não concluído ou expirado.',403)
         if not secrets.compare_digest(hashlib.sha256(proof.encode()).digest(),entry['proof_hash']):
             raise GoogleError('Comprovação de login inválida.',403)
-        sid=entry['sid'];s=SESSIONS.get(sid)
+        sid=entry['sid'];s=SESSIONS.get(sid) or durable.load(sid)
         if not s or not s.get('user'):raise GoogleError('Sessão não encontrada.',403)
         MOBILE.pop(tx,None)
         new=secrets.token_urlsafe(32)
         SESSIONS[new]=dict(s)
         SESSIONS[new].pop('mobile_tx',None)
+        durable.save(new,SESSIONS[new])
     return {'authenticated':True},cookie_value(new)
 
 def access(cookie, service):
