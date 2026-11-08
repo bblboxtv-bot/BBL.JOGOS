@@ -168,7 +168,7 @@ async function showGoogleConnections(){
     if(!s.services.includes(service))continue;
     button(el,label,async()=>{try{notify('Consultando Google...');const result=await googleCall('query',{tool,args:{consulta:''}});const out=document.createElement('pre');out.style.whiteSpace='pre-wrap';out.style.overflowWrap='anywhere';out.textContent=JSON.stringify(result,null,2);el.append(out);notify('Consulta concluída')}catch(e){notify(e.message)}});
    }
-   button(el,'Sair da BBLIA / trocar e-mail',()=>showAccount());
+   button(el,'Sair da conta / trocar e-mail',async()=>{if(send.disabled||voiceMode)return notify('Finalize a resposta ou conversa por voz antes de sair.');try{await saveChat();if(cloudUser&&cloudGeneration!==cloudSavedGeneration){await cloudSync(true);if(cloudGeneration!==cloudSavedGeneration)return notify('Sincronização pendente. Exporte um backup antes de sair.')}await accountRequest('/api/account/logout',{});await cloudLeave();await showGoogleConnections();notify('Você saiu da conta. Agora pode entrar com outro e-mail.')}catch(e){notify('Não foi possível sair: '+e.message)}});
    button(el,'Desconectar conta Google',async()=>{try{const result=await googleCall('disconnect',{});await cloudLeave();await showGoogleConnections();notify(result.revoked?'Conta desconectada e autorização revogada.':'Conta desconectada da BBLIA. Revise também as permissões na sua conta Google.')}catch(e){notify(e.message)}});
   }
  }catch(e){el.append(document.createTextNode(e.message))}
