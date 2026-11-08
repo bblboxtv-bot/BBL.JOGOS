@@ -8,6 +8,7 @@ import bblia_google as google
 import bblia_usage as usage
 import bblia_wallet as wallet
 import bblia_pix as pix
+import bblia_stage5 as stage5
 import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
@@ -143,6 +144,9 @@ class Handler(BaseHTTPRequestHandler):
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
   path=urlsplit(self.path).path
+  if path=='/api/agent/capabilities':
+   if not self.require_account():return
+   return self.reply(200,stage5.capabilities())
   if path=='/api/wallet/admin':
    if not self.require_account(admin=True):return
    try:return self.reply(200,wallet.admin_summary())
