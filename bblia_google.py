@@ -160,7 +160,7 @@ def mobile_begin():
             if MOBILE[key]['expires']<=time.time():MOBILE.pop(key,None)
         if len(MOBILE)>=500:raise GoogleError('Muitas autenticações simultâneas.',429)
         MOBILE[tx]={'proof_hash':hashlib.sha256(proof.encode()).digest(),'expires':time.time()+MOBILE_TTL,'sid':None}
-    return {'transaction':tx,'proof':proof,'browser_url':'https://bblia-teste.onrender.com/mobile-login?tx='+quote(tx)}
+    return {'transaction':tx,'proof':proof,'browser_url':config()[2].rsplit('/google-callback',1)[0]+'/mobile-login?tx='+quote(tx)}
 
 def mobile_browser_start(tx):
     with LOCK:
