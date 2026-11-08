@@ -373,7 +373,7 @@ refresh();</script></html>""".encode()
     return self.google_reply(200,result,cookie)
    except (email_auth.AuthError,google.GoogleError) as exc:return self.reply(exc.status,{'error':str(exc)})
    except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido.'})
-    if path=='/api/payments/webhook':
+  if path=='/api/payments/webhook':
    try:
     from urllib.parse import parse_qs
     q=parse_qs(urlsplit(self.path).query)
