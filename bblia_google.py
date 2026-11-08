@@ -2,6 +2,7 @@
 Sessions are intentionally in memory; restart requires reconnection.
 """
 import os, time, json, secrets, hashlib, base64, threading
+import bblia_email_auth as email_auth
 from http.cookies import SimpleCookie
 from urllib.parse import urlencode, parse_qs, urlsplit, quote
 from urllib.request import Request, urlopen
@@ -23,6 +24,8 @@ def config():
             os.getenv('GOOGLE_REDIRECT_URI','https://bblia-teste.onrender.com/google-callback').strip())
 
 def session(cookie):
+    local=email_auth.session(cookie)
+    if local:return local
     try:
         c=SimpleCookie(); c.load(cookie or ''); sid=c.get('__Host-bblia_google')
         sid=sid.value if sid else ''
@@ -42,7 +45,7 @@ def status(cookie):
     user = s.get('user') if s and s.get('token') else None
     owner_email = os.getenv('BBLIA_ADMIN_EMAIL', 'bbl.boxtv@gmail.com').strip().casefold()
     role = ('admin' if user and user.get('email', '').strip().casefold() == owner_email else 'client') if user else 'guest'
-    return {'configured': configured, 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
+    return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':os.getenv('BBLIA_EMAIL_REGISTRATION')=='enabled', 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
@@ -247,6 +250,7 @@ def execute(cookie, name, args):
 
 def disconnect(cookie, revoke=True):
     c=SimpleCookie();c.load(cookie or '');m=c.get('__Host-bblia_google')
+    if not m and c.get('__Host-bblia_email'):return email_auth.logout(cookie)
     with LOCK:s=SESSIONS.pop(m.value,None) if m else None
     # Local session is always removed, even if Google is unavailable.
     revoked=False
