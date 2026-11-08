@@ -243,7 +243,12 @@ speak=async function(text){
  try{for(let index=0;index<chunks.length;index++){
   const ready=await pending;if(token!==voiceToken)return;
   pending=index+1<chunks.length?loadSpeechChunk(chunks[index+1],token):null;
-  if(ready.error)throw ready.error;
+  if(ready.error){
+   if(token!==voiceToken)return;
+   status.textContent='Usando voz do aparelho enquanto o áudio online está indisponível.';
+   await deviceSpeech(chunks[index],token);
+   continue;
+  }
   try{
    if(ready.buffer)await playSpeechBuffer(ready.buffer,token);
    else if(ready.blob)await playSpeechBlob(ready.blob,token);
