@@ -486,11 +486,14 @@ refresh();</script></html>""".encode()
    if account['role']!='admin':
     if provider=='openai' and data.get('paid_authorized') is not True:
      IN_FLIGHT.release();return self.reply(403,{'error':'Autorize o uso de créditos OpenAI antes de enviar esta mensagem.'})
-    try:
-     if not usage.reserve_text(account['user']['id']):
-      IN_FLIGHT.release();return self.reply(429,{'error':'Limite gratuito de 20 mensagens por dia atingido.','quota_exceeded':True})
-    except (RuntimeError,OSError,ValueError):
-     IN_FLIGHT.release();return self.reply(503,{'error':'Controle de cotas indisponível. Tente mais tarde.'})
+    # The free daily quota applies only to Gemini; explicitly paid OpenAI requests
+    # must not depend on the optional SQLite quota database.
+    if provider=='gemini':
+     try:
+      if not usage.reserve_text(account['user']['id']):
+       IN_FLIGHT.release();return self.reply(429,{'error':'Limite gratuito de 20 mensagens por dia atingido.','quota_exceeded':True})
+     except (RuntimeError,OSError,ValueError):
+      IN_FLIGHT.release();return self.reply(503,{'error':'Controle de cotas indisponível. Tente mais tarde.'})
    try:
     if provider=='gemini':
      from bblia_gemini import responder, GeminiError
