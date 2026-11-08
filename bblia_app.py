@@ -1,3 +1,4 @@
+import sitecustomize  # opt-in stage6 DB smoke check; disabled unless explicitly enabled
 import bblia_tv as tv_remote
 import bblia_apk_delivery as apk_delivery
 from bblia_speech import synthesize, transcribe, SpeechError
