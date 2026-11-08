@@ -9,6 +9,7 @@ import bblia_usage as usage
 import bblia_wallet as wallet
 import bblia_pix as pix
 import bblia_stage5 as stage5
+import bblia_email_auth as email_auth
 import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
@@ -62,7 +63,7 @@ class Handler(BaseHTTPRequestHandler):
  def require_account(self, admin=False, feature=None):
   account=google.status(self.headers.get('Cookie',''))
   if not account.get('authenticated'):
-   self.reply(401,{'error':'Entre com sua conta Google para utilizar a BBLIA.','login_required':True})
+   self.reply(401,{'error':'Entre com Google ou e-mail e senha para utilizar a BBLIA.','login_required':True})
    return False
   if admin and account.get('role')!='admin':
    self.reply(403,{'error':'Esta função é exclusiva do administrador da BBLIA.'})
@@ -211,7 +212,7 @@ refresh();</script></html>""".encode()
   if urlsplit(self.path).path in ('/','/index.html','/computer-callback'):
    authenticated=google.status(self.headers.get('Cookie','')).get('authenticated',False)
    if not authenticated:
-    page=b"""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA - Login</title><style>body{font:16px system-ui;background:#080d29;color:white;display:grid;place-items:center;min-height:95vh;margin:0}main{text-align:center;padding:28px;max-width:390px}h1{color:#e9b85d;font-size:44px}button{background:#e9b85d;color:#17152c;border:0;border-radius:12px;padding:15px 28px;font-weight:700;font-size:17px}p{line-height:1.6}</style><main id="bblia-login-gate"><h1>BBLIA</h1><p>Entre com sua conta Google para utilizar o aplicativo.</p><button id="login" type="button">Entrar com Google</button><p id="feedback" role="status"></p></main><script>document.getElementById('login').onclick=async()=>{const feedback=document.getElementById('feedback');feedback.textContent='Conectando...';try{const mobile=!!window.BBLAndroid;const r=await fetch(mobile?'/api/mobile/begin':'/api/account/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok||!(mobile?d.browser_url:d.url))throw Error(d.error||'Login indisponivel');if(mobile){sessionStorage.setItem('bblia_mobile_tx',d.transaction);sessionStorage.setItem('bblia_mobile_proof',d.proof);window.BBLAndroid.openLogin(d.browser_url)}else location.href=d.url}catch(e){feedback.textContent=e.message}};window.bbliaMobileReturn=async(tx)=>{const saved=sessionStorage.getItem('bblia_mobile_tx');const proof=sessionStorage.getItem('bblia_mobile_proof');if(!tx||tx!==saved||!proof)return;try{const r=await fetch('/api/mobile/redeem',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction:tx,proof})});if(!r.ok)throw Error('Nao foi possivel confirmar o login');sessionStorage.removeItem('bblia_mobile_tx');sessionStorage.removeItem('bblia_mobile_proof');location.replace('/')}catch(e){document.getElementById('feedback').textContent=e.message}}</script></html>"""
+    page=b"""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA - Login</title><style>body{font:16px system-ui;background:#080d29;color:white;display:grid;place-items:center;min-height:95vh;margin:0}main{text-align:center;padding:28px;max-width:390px}h1{color:#e9b85d;font-size:44px}button{background:#e9b85d;color:#17152c;border:0;border-radius:12px;padding:15px 28px;font-weight:700;font-size:17px}p{line-height:1.6}</style><main id="bblia-login-gate"><h1>BBLIA</h1><p>Entre com Google ou com e-mail e senha da BBLIA.</p><button id="login" type="button">Entrar com Google</button><p style="margin:18px 0">ou</p><form id="emailForm" style="display:grid;gap:10px"><input id="email" type="email" placeholder="Seu e-mail" autocomplete="username" required style="padding:12px;border-radius:8px"><input id="password" type="password" placeholder="Senha da BBLIA" autocomplete="current-password" required style="padding:12px;border-radius:8px"><button type="submit">Entrar com e-mail</button></form><p id="feedback" role="status"></p></main><script>document.getElementById("emailForm").onsubmit=async(e)=>{e.preventDefault();const f=document.getElementById("feedback");f.textContent="Entrando...";try{const r=await fetch("/api/email/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});const d=await r.json();if(!r.ok)throw Error(d.error||"Falha no login");location.replace("/")}catch(err){f.textContent=err.message}};document.getElementById('login').onclick=async()=>{const feedback=document.getElementById('feedback');feedback.textContent='Conectando...';try{const mobile=!!window.BBLAndroid;const r=await fetch(mobile?'/api/mobile/begin':'/api/account/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok||!(mobile?d.browser_url:d.url))throw Error(d.error||'Login indisponivel');if(mobile){sessionStorage.setItem('bblia_mobile_tx',d.transaction);sessionStorage.setItem('bblia_mobile_proof',d.proof);window.BBLAndroid.openLogin(d.browser_url)}else location.href=d.url}catch(e){feedback.textContent=e.message}};window.bbliaMobileReturn=async(tx)=>{const saved=sessionStorage.getItem('bblia_mobile_tx');const proof=sessionStorage.getItem('bblia_mobile_proof');if(!tx||tx!==saved||!proof)return;try{const r=await fetch('/api/mobile/redeem',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction:tx,proof})});if(!r.ok)throw Error('Nao foi possivel confirmar o login');sessionStorage.removeItem('bblia_mobile_tx');sessionStorage.removeItem('bblia_mobile_proof');location.replace('/')}catch(e){document.getElementById('feedback').textContent=e.message}}</script></html>"""
    else:page=HTML
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page)
   elif urlsplit(self.path).path=='/bblia-logo.jpg':
@@ -357,7 +358,22 @@ refresh();</script></html>""".encode()
    ZIP_SLOTS.release()
  def do_POST(self):
   path=urlsplit(self.path).path
-  if path=='/api/payments/webhook':
+  if path in ('/api/email/register','/api/email/login','/api/email/logout'):
+   try:
+    google.check_origin(self.headers)
+    length=int(self.headers.get('Content-Length','0'))
+    if not 0<=length<=4096:return self.reply(413,{'error':'Pedido muito grande.'})
+    data=json.loads(self.rfile.read(length)) if length else {}
+    if not isinstance(data,dict):raise ValueError()
+    if path=='/api/email/register':return self.reply(201,email_auth.register(data.get('email'),data.get('password'),data.get('name')))
+    if path=='/api/email/login':
+     result,cookie=email_auth.login(data.get('email'),data.get('password'))
+     return self.google_reply(200,result,cookie)
+    result,cookie=email_auth.logout(self.headers.get('Cookie',''))
+    return self.google_reply(200,result,cookie)
+   except (email_auth.AuthError,google.GoogleError) as exc:return self.reply(exc.status,{'error':str(exc)})
+   except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido.'})
+    if path=='/api/payments/webhook':
    try:
     from urllib.parse import parse_qs
     q=parse_qs(urlsplit(self.path).query)
@@ -380,8 +396,8 @@ refresh();</script></html>""".encode()
     account=google.status(self.headers.get('Cookie',''))['user']
     return self.reply(200,pix.create_pix(account['id'],account['email'],data.get('amount_cents')))
    except (wallet.WalletError,ValueError,TypeError) as exc:return self.reply(getattr(exc,'status',400),{'error':str(exc)})
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/payments/webhook') and not self.require_account():return
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat','/api/payments/webhook','/api/wallet/pix') and not self.require_account(feature=path):return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/payments/webhook','/api/email/register','/api/email/login','/api/email/logout') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat','/api/payments/webhook','/api/wallet/pix','/api/email/register','/api/email/login','/api/email/logout') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
