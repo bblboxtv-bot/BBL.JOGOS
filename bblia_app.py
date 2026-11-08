@@ -511,7 +511,7 @@ refresh();</script></html>""".encode()
     if account['role']!='admin' and os.getenv('BBLIA_ENFORCE_CHAT_CREDITS')=='1':
      import bblia_credit_gate as credit_gate
      try:
-      credit_gate.charge(account['user']['id'],'chat',secrets.token_urlsafe(18),data.get('paid_authorized'))
+      credit_gate.charge(account['user']['id'],'chat',__import__('secrets').token_urlsafe(18),data.get('paid_authorized'))
      except credit_gate.CreditGateError as exc:
       return self.reply(exc.status,{'error':str(exc)})
     self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))
