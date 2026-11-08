@@ -39,12 +39,17 @@ def login(email,password):
  email=_email(email)
  if not isinstance(password,str):raise AuthError('E-mail ou senha incorretos.',401)
  with LOCK:
+  now=time.time();recent=[t for t in ATTEMPTS.get(email,[]) if t>now-900]
+  if len(recent)>=8:raise AuthError('Muitas tentativas. Aguarde 15 minutos.',429)
   db=_db()
   try:
    row=db.execute('SELECT id,salt,password_hash FROM users WHERE email=?',(email,)).fetchone()
    salt=row[1] if row else b'\0'*24
    valid=hmac.compare_digest(_hash(password[:129],salt),row[2] if row else b'\0'*32)
-   if not row or not valid:raise AuthError('E-mail ou senha incorretos.',401)
+   if not row or not valid:
+    ATTEMPTS[email]=(recent+[now])[-8:]
+    raise AuthError('E-mail ou senha incorretos.',401)
+   ATTEMPTS.pop(email,None)
    token=secrets.token_urlsafe(40);digest=hashlib.sha256(token.encode()).hexdigest()
    db.execute('DELETE FROM sessions WHERE expires<?',(int(time.time()),))
    db.execute('INSERT INTO sessions VALUES(?,?,?)',(digest,row[0],int(time.time())+TTL));db.commit()
