@@ -1,5 +1,5 @@
 """BBLIA etapa 4: ledger de creditos. Pagamentos reais permanecem desativados."""
-import os,sqlite3,threading,time,secrets
+import os,bblia_db as sqlite3,threading,time,secrets
 from pathlib import Path
 
 DB=Path(os.getenv('BBLIA_CREDITS_DB','bblia_credits.sqlite3'))
