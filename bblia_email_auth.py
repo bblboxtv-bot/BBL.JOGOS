@@ -3,6 +3,8 @@ import os,sqlite3,time,secrets,hashlib,hmac,re,threading
 from http.cookies import SimpleCookie
 from pathlib import Path
 LOCK=threading.RLock()
+ATTEMPTS={}
+
 TTL=12*3600
 class AuthError(Exception):
  def __init__(self,message,status=400):super().__init__(message);self.status=status
