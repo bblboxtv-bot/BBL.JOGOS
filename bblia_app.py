@@ -169,7 +169,11 @@ class Handler(BaseHTTPRequestHandler):
    body=(BASE/urlsplit(self.path).path.lstrip('/')).read_bytes()
    self.send_response(200);self.send_header('Content-Type','application/javascript; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if urlsplit(self.path).path in ('/','/index.html','/computer-callback'):
-   self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(HTML)));self.end_headers();self.wfile.write(HTML)
+   authenticated=google.status(self.headers.get('Cookie','')).get('authenticated',False)
+   if not authenticated:
+    page=b"""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA - Login</title><style>body{font:16px system-ui;background:#080d29;color:white;display:grid;place-items:center;min-height:95vh;margin:0}main{text-align:center;padding:28px;max-width:390px}h1{color:#e9b85d;font-size:44px}button{background:#e9b85d;color:#17152c;border:0;border-radius:12px;padding:15px 28px;font-weight:700;font-size:17px}p{line-height:1.6}</style><main id="bblia-login-gate"><h1>BBLIA</h1><p>Entre com sua conta Google para utilizar o aplicativo.</p><button id="login" type="button">Entrar com Google</button><p id="feedback" role="status"></p></main><script>document.getElementById('login').onclick=async()=>{const feedback=document.getElementById('feedback');feedback.textContent='Conectando...';try{const r=await fetch('/api/account/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok||!d.url)throw Error(d.error||'Login indisponivel');location.href=d.url}catch(e){feedback.textContent=e.message}}</script></html>"""
+   else:page=HTML
+   self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page)
   elif urlsplit(self.path).path=='/bblia-logo.jpg':
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
   elif urlsplit(self.path).path=='/bblia_logo.svg':
