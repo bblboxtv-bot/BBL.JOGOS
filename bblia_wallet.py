@@ -127,3 +127,12 @@ def order(order_id):
    if not row:raise WalletError('Pedido nao encontrado.',404)
    return dict(zip(('id','user_id','amount_cents','credits','status','provider_ref'),row))
   finally:con.close()
+
+def admin_summary(limit=100):
+ with LOCK:
+  con=_db()
+  try:
+   wallets=con.execute('SELECT user_id,balance FROM wallets ORDER BY user_id LIMIT ?', (min(max(int(limit),1),200),)).fetchall()
+   payments=con.execute('SELECT id,user_id,amount_cents,credits,status,created_at,paid_at FROM payments ORDER BY created_at DESC LIMIT 100').fetchall()
+   return {'wallets':[{'user_id':u,'balance':b} for u,b in wallets],'payments':[dict(zip(('id','user_id','amount_cents','credits','status','created_at','paid_at'),r)) for r in payments]}
+  finally:con.close()
