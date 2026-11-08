@@ -218,6 +218,8 @@ class Handler(BaseHTTPRequestHandler):
   except MediaError as exc:self.reply(exc.status,{'error':str(exc)})
   except (BrokenPipeError,ConnectionResetError):pass
  def do_HEAD(self):
+  path=urlsplit(self.path).path
+  if path.startswith('/api/') and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk(head=True)
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video(head=True)
   self.send_response(200 if urlsplit(self.path).path in ('/','/health') else 404);self.send_header('Content-Length','0');self.end_headers()
