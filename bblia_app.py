@@ -423,7 +423,7 @@ refresh();</script></html>""".encode()
     return self.reply(200,pix.create_pix(account['id'],account['email'],data.get('amount_cents')))
    except (wallet.WalletError,ValueError,TypeError) as exc:return self.reply(getattr(exc,'status',400),{'error':str(exc)})
   if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/payments/webhook','/api/email/register','/api/email/login','/api/email/logout') and not self.require_account():return
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat','/api/payments/webhook','/api/wallet/pix','/api/email/register','/api/email/login','/api/email/logout') and not self.require_account(feature=path):return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/google/save','/api/chat','/api/payments/webhook','/api/wallet/pix','/api/email/register','/api/email/login','/api/email/logout') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
@@ -433,7 +433,7 @@ refresh();</script></html>""".encode()
    except tv_remote.TVError as exc:return self.reply(exc.status,{'error':str(exc)})
    except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
   if urlsplit(self.path).path.startswith('/api/apk/upload/'):return self.receive_compiled_apk()
-  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/google/save'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path=='/api/zip/analyze':return self.zip_inspect()
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
