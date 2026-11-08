@@ -1,6 +1,6 @@
 'use strict';
 // OpenAI voice: continuous WebRTC conversation and separate message dictation.
-function voiceProviderOptions(){return typeof aiRequestOptions==='function'?aiRequestOptions():{provider:'openai',paid_authorized:true}}
+function voiceProviderOptions(){return {provider:'openai',paid_authorized:true}}
 let realtimePC=null,realtimeConnecting=false,realtimeAudio=null;
 let voiceGeneration=0,voiceCapture=null,voiceContext=null,voiceRecorder=null,voiceMeterTimer=null;
 let voiceSpeaking=false,voiceRequest=null,voiceCancelPlayback=null,voiceUseRecorder=false;
@@ -359,7 +359,7 @@ const originalDictateMessage=dictateMessage;
 dictateMessage=function(){
  if(voiceMode)return;
  if(voiceOneShot){if(voiceRecorder?.state==='recording')voiceRecorder.stop();return}
- if(voiceProviderOptions().provider!=='openai'&&(window.SpeechRecognition||window.webkitSpeechRecognition))return originalDictateMessage();
+ // Use the same OpenAI transcription backend for the message microphone.
  endRealtime();unlockVoicePlayback();prepareVoiceContext();voiceOneShot=true;captureVoice();
 };
 send.addEventListener?.('click',()=>unlockVoicePlayback(),{capture:true});
@@ -500,7 +500,7 @@ const toggleRecordedVoice=toggleVoice;
 toggleVoice=function(){
  if(voiceMode){voiceMode=false;endRealtime();stopSpeaking();setVoiceUI();status.textContent='Conversa por voz encerrada';return}
  if(send.disabled){status.textContent='Aguarde a tarefa atual terminar.';return}
- if(voiceProviderOptions().provider!=='openai')return toggleRecordedVoice();
+ // Continuous conversation uses the OpenAI Realtime path regardless of chat provider.
  stopSpeaking();endRealtime();unlockVoicePlayback();
  if(dictation){dictation.onend=null;try{dictation.abort()}catch(e){}dictation=null;document.getElementById('dictate').classList.remove('listening')}
  voiceMode=true;muted=false;localStorage.setItem('bblia_muted','0');document.getElementById('auto').checked=true;updateMute();setVoiceUI();status.textContent='Conectando a conversa OpenAI...';startOpenAIVoice();
