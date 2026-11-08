@@ -143,6 +143,10 @@ class Handler(BaseHTTPRequestHandler):
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
   path=urlsplit(self.path).path
+  if path=='/api/wallet/admin':
+   if not self.require_account(admin=True):return
+   try:return self.reply(200,wallet.admin_summary())
+   except (wallet.WalletError,OSError) as exc:return self.reply(getattr(exc,'status',503),{'error':str(exc)})
   if path in ('/api/wallet','/api/wallet/history','/api/wallet/packages'):
    if not self.require_account():return
    user=google.status(self.headers.get('Cookie',''))['user']['id']
@@ -150,6 +154,10 @@ class Handler(BaseHTTPRequestHandler):
     result=wallet.balance(user) if path=='/api/wallet' else (wallet.history(user) if path.endswith('/history') else {'packages':wallet.packages(),'pix_configured':pix.configured()})
     return self.reply(200,result)
    except (wallet.WalletError,OSError) as exc:return self.reply(getattr(exc,'status',503),{'error':str(exc)})
+  if path=='/wallet-admin':
+   if not self.require_account(admin=True):return
+   page="""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA Admin - Créditos</title><style>body{font:15px system-ui;background:#111827;color:white;padding:20px}pre{background:#202b3e;border-radius:10px;padding:18px;white-space:pre-wrap;word-break:break-word}a{color:#f2cc77}</style><h1>BBLIA — Administração de créditos</h1><a href="/wallet">Carteira</a><p>Consulta de saldos e transações. Recargas manuais desabilitadas.</p><button onclick="refresh()">Atualizar</button><pre id="data">Carregando...</pre><script>async function refresh(){const r=await fetch('/api/wallet/admin');const d=await r.json();document.getElementById('data').textContent=JSON.stringify(d,null,2)}refresh()</script></html>""".encode()
+   self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page);return
   if path=='/wallet':
    if not self.require_account():return
    page="""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Carteira BBLIA</title><style>body{background:#111827;color:#fff;font:16px system-ui;margin:0;padding:24px;max-width:650px}button{background:#d5ad54;color:#161616;border:0;border-radius:9px;padding:12px;margin:5px;font-weight:700}section{background:#202b3e;padding:18px;border-radius:14px;margin:16px 0}pre{white-space:pre-wrap;word-break:break-all}a{color:#f3d38b}</style><h1>Carteira BBLIA</h1><a href="/">Voltar à BBLIA</a><section><h2>Meu saldo</h2><h1 id="balance">...</h1><button onclick="refresh()">Atualizar</button></section><section><h2>Recarregar com Pix</h2><div id="packages"></div><p id="notice">Carregando...</p><pre id="pix"></pre></section><section><h2>Histórico</h2><pre id="history"></pre></section><script>
