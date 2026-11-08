@@ -47,6 +47,22 @@ class CreditGateTests(unittest.TestCase):
         with patch.dict(os.environ,{"BBLIA_COST_CHAT_CREDITS":""}):
             with self.assertRaises(gate.CreditGateError) as e:gate.preflight("alice","chat",True)
             self.assertEqual(e.exception.status,503)
+    def test_refund_restores_balance(self):
+        self.fund()
+        wallet.spend("alice",2,"chat:failed")
+        self.assertTrue(wallet.refund_spend("alice","chat:failed")["refunded"])
+        self.assertEqual(wallet.balance("alice")["balance"],5)
+    def test_duplicate_refund_no_double_credit(self):
+        self.fund()
+        wallet.spend("alice",2,"chat:failed")
+        wallet.refund_spend("alice","chat:failed")
+        self.assertFalse(wallet.refund_spend("alice","chat:failed")["refunded"])
+        self.assertEqual(wallet.balance("alice")["balance"],5)
+    def test_missing_charge_cannot_mint_credits(self):
+        self.fund()
+        with self.assertRaises(wallet.WalletError):
+            wallet.refund_spend("alice","chat:missing")
+        self.assertEqual(wallet.balance("alice")["balance"],5)
     def test_bad_feature(self):
         with self.assertRaises(gate.CreditGateError):gate.preflight("alice","unknown",True)
 
