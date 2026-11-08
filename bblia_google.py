@@ -1,8 +1,9 @@
 """Google OAuth and account-isolated, read-only tools. Secrets never reach JS.
-Sessions are intentionally in memory; restart requires reconnection.
+Encrypted persistence is optional; without configured key sessions remain in memory.
 """
 import os, time, json, secrets, hashlib, base64, threading
 import bblia_email_auth as email_auth
+import bblia_google_store as durable
 from http.cookies import SimpleCookie
 from urllib.parse import urlencode, parse_qs, urlsplit, quote
 from urllib.request import Request, urlopen
@@ -31,10 +32,14 @@ def session(cookie):
         sid=sid.value if sid else ''
     except Exception: return None
     with LOCK:
-        value=SESSIONS.get(sid)
+        value=SESSIONS.get(sid) or durable.load(sid)
         if value and value['expires']>time.time(): return value
         SESSIONS.pop(sid,None)
     return None
+
+def _sid_from_cookie(cookie):
+    c=SimpleCookie();c.load(cookie or '')
+    return c['__Host-bblia_google'].value if '__Host-bblia_google' in c else ''
 
 def cookie_value(sid, age=TTL):
     return '__Host-bblia_google='+sid+'; Path=/; Max-Age='+str(age)+'; Secure; HttpOnly; SameSite=Lax'
@@ -83,6 +88,7 @@ def start(cookie, services):
     params={'client_id':client,'redirect_uri':redirect,'response_type':'code','scope':' '.join(SESSIONS[sid]['requested']),
             'state':state,'code_challenge':challenge,'code_challenge_method':'S256',
             'access_type':'offline','prompt':'consent select_account'}
+    durable.save(sid,SESSIONS[sid])
     return {'url':'https://accounts.google.com/o/oauth2/v2/auth?'+urlencode(params)},cookie_value(sid,600)
 
 def request_json(url, data=None, headers=None):
@@ -112,6 +118,7 @@ def callback(cookie, query):
     with LOCK:
         if not s.get('state'):raise GoogleError('Autorização já utilizada.',403)
         s.pop('state')
+        durable.save(_sid_from_cookie(cookie),s)
     if q.get('error'):raise GoogleError('A conexão não foi autorizada. Você pode tentar novamente.')
     code=q.get('code',[''])[0]
     if not code or len(code)>4096:raise GoogleError('Código de autorização inválido.')
@@ -129,6 +136,8 @@ def callback(cookie, query):
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
     c=SimpleCookie();c.load(cookie);old=c['__Host-bblia_google'].value;new=secrets.token_urlsafe(32)
     with LOCK:SESSIONS.pop(old,None);SESSIONS[new]=s
+    durable.delete(old)
+    durable.save(new,s)
     return cookie_value(new)
 
 
@@ -197,6 +206,7 @@ def access(cookie, service):
             r=token_request({'grant_type':'refresh_token','refresh_token':s['refresh']})
             if not r.get('access_token'):raise GoogleError('Autorização Google expirada. Conecte novamente.',401)
             s.update(token=r['access_token'],token_expires=time.time()+int(r.get('expires_in',3600))-60)
+            durable.save(_sid_from_cookie(cookie),s)
     return s['token']
 
 def api(cookie,service,path,params=None):
@@ -261,6 +271,7 @@ def disconnect(cookie, revoke=True):
     c=SimpleCookie();c.load(cookie or '');m=c.get('__Host-bblia_google')
     if not m and c.get('__Host-bblia_email'):return email_auth.logout(cookie)
     with LOCK:s=SESSIONS.pop(m.value,None) if m else None
+    if m:durable.delete(m.value)
     # Local session is always removed, even if Google is unavailable.
     revoked=False
     if revoke and s and s.get('token'):
