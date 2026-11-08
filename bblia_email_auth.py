@@ -1,5 +1,5 @@
 """Local BBLIA email/password login. Requires durable BBLIA_AUTH_DB before production."""
-import os,sqlite3,time,secrets,hashlib,hmac,re,threading
+import os,bblia_db as sqlite3,time,secrets,hashlib,hmac,re,threading
 from http.cookies import SimpleCookie
 from pathlib import Path
 LOCK=threading.RLock()
@@ -34,7 +34,9 @@ def register(email,password,name):
   db=_db()
   try:
    db.execute('INSERT INTO users VALUES(?,?,?,?,?,?)',(uid,email,name.strip(),salt,_hash(password,salt),int(time.time())));db.commit()
-  except sqlite3.IntegrityError:raise AuthError('Este e-mail já está cadastrado.',409)
+  except Exception as exc:
+   if getattr(exc,'sqlstate',None)=='23505' or isinstance(exc,sqlite3.IntegrityError):raise AuthError('Este e-mail já está cadastrado.',409)
+   raise
   finally:db.close()
  return {'created':True}
 def login(email,password):
