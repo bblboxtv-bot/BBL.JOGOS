@@ -24,7 +24,7 @@ def create_pix(user_id,email,amount_cents):
  if not isinstance(email,str) or '@' not in email:raise wallet.WalletError('Email do pagador indisponivel.',400)
  result=wallet.create_order(user_id,amount_cents)
  order_id=result['order_id']
- payload={'transaction_amount':float(Decimal(amount_cents)/100),'description':'Creditos BBLIA','payment_method_id':'pix','payer':{'email':email},'external_reference':order_id,'notification_url':os.getenv('BBLIA_MP_WEBHOOK_URL','https://bblia-teste.onrender.com/api/payments/webhook')}
+ payload={'transaction_amount':float(Decimal(amount_cents)/100),'description':'Creditos BBLIA','payment_method_id':'pix','payer':{'email':email},'external_reference':order_id,'notification_url':os.getenv('BBLIA_MP_WEBHOOK_URL') or (os.getenv('RENDER_EXTERNAL_URL','https://bblia-stage6-validacao.onrender.com').rstrip('/')+'/api/payments/webhook')}
  p=_request('/v1/payments','POST',payload,key=order_id)
  if not p.get('id') or str(p.get('external_reference'))!=order_id:
   raise wallet.WalletError('Provedor retornou um pedido inconsistente.',502)
