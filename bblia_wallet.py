@@ -143,3 +143,24 @@ def admin_summary(limit=100):
    paid=con.execute("SELECT COALESCE(SUM(amount_cents),0),COUNT(*) FROM payments WHERE status='paid'").fetchone()
    return {'wallets':[{'user_id':u,'balance':b} for u,b in wallets],'payments':[dict(zip(('id','user_id','amount_cents','credits','status','created_at','paid_at'),r)) for r in payments],'summary':{'credits_available':current[0],'wallet_count':current[1],'credits_credited':totals[0],'credits_spent':totals[1],'pix_paid_cents':paid[0],'pix_paid_count':paid[1]}}
   finally:con.close()
+
+def refund_spend(user_id,ref):
+ """Idempotently reverse an existing debit. Never create credits for a missing charge."""
+ user_id=_id(user_id)
+ if not isinstance(ref,str) or not 1<=len(ref)<=200:raise WalletError('Referencia invalida.')
+ with LOCK:
+  con=_db()
+  try:
+   con.execute('BEGIN IMMEDIATE')
+   original=con.execute('SELECT user_id,delta FROM movements WHERE ref=?',('spend:'+ref,)).fetchone()
+   if not original or original[0]!=user_id or original[1]>=0:
+    raise WalletError('Cobranca original nao encontrada.',404)
+   refund_ref='refund:'+ref
+   prior=con.execute('SELECT user_id FROM movements WHERE ref=?',(refund_ref,)).fetchone()
+   if prior:
+    con.commit();return {'refunded':False}
+   _move(con,user_id,-original[1],'usage_refund',refund_ref)
+   con.commit();return {'refunded':True}
+  except Exception:
+   con.rollback();raise
+  finally:con.close()
