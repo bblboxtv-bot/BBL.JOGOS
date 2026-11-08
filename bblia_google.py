@@ -110,15 +110,21 @@ def token_request(values):
     return request_json('https://oauth2.googleapis.com/token',urlencode({'client_id':client,'client_secret':secret,**values}).encode(),{'Content-Type':'application/x-www-form-urlencoded'})
 
 def callback(cookie, query):
-    s=session(cookie); q=parse_qs(query)
+    q=parse_qs(query)
     state=q.get('state',[''])[0]
-    if not s or not s.get('state') or not secrets.compare_digest(state,s['state']):
+    # OAuth state is a cryptographically random one-time credential. iOS may open
+    # Google's consent screen in a different browser context without our cookie.
+    if durable.enabled():
+        s=durable.consume_state(state)
+    else:
+        s=session(cookie)
+        if s and s.get('state') and secrets.compare_digest(state,s['state']):
+            with LOCK:
+                s.pop('state')
+        else:s=None
+    if not s:
         raise GoogleError('Autorização inválida ou expirada. Inicie a conexão novamente.',403)
-    # Consume the pending authorization before exchange to prevent replay.
-    with LOCK:
-        if not s.get('state'):raise GoogleError('Autorização já utilizada.',403)
-        s.pop('state')
-        durable.save(_sid_from_cookie(cookie),s)
+    s.pop('state',None)
     if q.get('error'):raise GoogleError('A conexão não foi autorizada. Você pode tentar novamente.')
     code=q.get('code',[''])[0]
     if not code or len(code)>4096:raise GoogleError('Código de autorização inválido.')
@@ -134,8 +140,10 @@ def callback(cookie, query):
     if not any(v in granted for v in SCOPES.values()):raise GoogleError('Nenhum dos serviços solicitados foi autorizado.',403)
     s.update(token=result['access_token'],refresh=result.get('refresh_token',''),scopes=granted,
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
-    c=SimpleCookie();c.load(cookie);old=c['__Host-bblia_google'].value;new=secrets.token_urlsafe(32)
-    with LOCK:SESSIONS.pop(old,None);SESSIONS[new]=s
+    old=_sid_from_cookie(cookie);new=secrets.token_urlsafe(32)
+    with LOCK:
+        SESSIONS.pop(old,None)
+        SESSIONS[new]=s
     durable.save(new,s)
     durable.delete(old)
     return cookie_value(new)
