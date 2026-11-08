@@ -5,6 +5,10 @@ from pathlib import Path
 DB=Path(os.getenv('BBLIA_CREDITS_DB','bblia_credits.sqlite3'))
 LOCK=threading.RLock()
 PACKAGES={1000:100,2000:230,4000:500,8000:1100}
+def _packages():
+ values=dict(PACKAGES)
+ if os.getenv('BBLIA_STAGE6_PIX_ONE_REAL')=='1':values[100]=10
+ return values
 
 class WalletError(Exception):
  def __init__(self,message,status=400):
@@ -34,16 +38,16 @@ def balance(user_id):
   finally:con.close()
 
 def packages():
- return [{'amount_cents':a,'credits':c} for a,c in PACKAGES.items()]
+ return [{'amount_cents':a,'credits':c} for a,c in _packages().items()]
 
 def create_order(user_id,amount_cents):
  user_id=_id(user_id)
- if type(amount_cents)!=int or amount_cents not in PACKAGES:raise WalletError('Pacote invalido.')
+ if type(amount_cents)!=int or amount_cents not in _packages():raise WalletError('Pacote invalido.')
  order='bblia_'+secrets.token_urlsafe(18)
  with LOCK:
   con=_db()
   try:
-   con.execute('INSERT INTO payments(id,user_id,amount_cents,credits,status,created_at) VALUES(?,?,?,?,?,?)',(order,user_id,amount_cents,PACKAGES[amount_cents],'awaiting_provider',int(time.time())))
+   con.execute('INSERT INTO payments(id,user_id,amount_cents,credits,status,created_at) VALUES(?,?,?,?,?,?)',(order,user_id,amount_cents,_packages()[amount_cents],'awaiting_provider',int(time.time())))
   finally:con.close()
  return {'order_id':order,'status':'awaiting_provider','amount_cents':amount_cents,'credits':PACKAGES[amount_cents],'pix_available':False}
 
