@@ -20,7 +20,7 @@ class PgConnection:
   if sql.upper().startswith('PRAGMA '):return self.conn.cursor()
   sql=sql.replace('BEGIN IMMEDIATE','BEGIN')
   sql=sql.replace('INTEGER PRIMARY KEY AUTOINCREMENT','BIGSERIAL PRIMARY KEY')
-  sql=re.sub(r'\\bBLOB\\b','BYTEA',sql,flags=re.I)
+  sql=re.sub(r'\bBLOB\b','BYTEA',sql,flags=re.I)
   sql=re.sub(r'INSERT OR IGNORE INTO (\w+)\s*\(([^)]*)\) VALUES\s*\(([^)]*)\)',r'INSERT INTO \1(\2) VALUES(\3) ON CONFLICT DO NOTHING',sql,flags=re.I)
   sql=sql.replace('?', '%s')
   return self.conn.execute(sql,params)
