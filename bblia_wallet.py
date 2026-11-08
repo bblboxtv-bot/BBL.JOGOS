@@ -138,5 +138,8 @@ def admin_summary(limit=100):
   try:
    wallets=con.execute('SELECT user_id,balance FROM wallets ORDER BY user_id LIMIT ?', (min(max(int(limit),1),200),)).fetchall()
    payments=con.execute('SELECT id,user_id,amount_cents,credits,status,created_at,paid_at FROM payments ORDER BY created_at DESC LIMIT 100').fetchall()
-   return {'wallets':[{'user_id':u,'balance':b} for u,b in wallets],'payments':[dict(zip(('id','user_id','amount_cents','credits','status','created_at','paid_at'),r)) for r in payments]}
+   totals=con.execute("SELECT COALESCE(SUM(CASE WHEN delta>0 THEN delta ELSE 0 END),0),COALESCE(SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END),0) FROM movements").fetchone()
+   current=con.execute("SELECT COALESCE(SUM(balance),0),COUNT(*) FROM wallets").fetchone()
+   paid=con.execute("SELECT COALESCE(SUM(amount_cents),0),COUNT(*) FROM payments WHERE status='paid'").fetchone()
+   return {'wallets':[{'user_id':u,'balance':b} for u,b in wallets],'payments':[dict(zip(('id','user_id','amount_cents','credits','status','created_at','paid_at'),r)) for r in payments],'summary':{'credits_available':current[0],'wallet_count':current[1],'credits_credited':totals[0],'credits_spent':totals[1],'pix_paid_cents':paid[0],'pix_paid_count':paid[1]}}
   finally:con.close()
