@@ -53,7 +53,11 @@ def status(cookie):
 
 def check_origin(headers):
     expected=urlsplit(config()[2]); origin=headers.get('Origin','')
-    if origin != expected.scheme+'://'+expected.netloc:
+    allowed={expected.scheme+'://'+expected.netloc}
+    stage=os.getenv('BBLIA_STAGE6_ALLOWED_ORIGIN','').rstrip('/')
+    if stage and urlsplit(stage).scheme=='https' and urlsplit(stage).netloc.endswith('.onrender.com'):
+        allowed.add(stage)
+    if origin not in allowed or urlsplit(origin).netloc != headers.get('Host',''):
         raise GoogleError('Origem da solicitação inválida.',403)
 
 def start(cookie, services):
