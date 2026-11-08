@@ -5,7 +5,7 @@ import bblia_google_store as store
 
 class SessionStoreTests(unittest.TestCase):
     def test_encryption_restart_and_revocation(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             path=os.path.join(folder,'session.sqlite3')
             with patch.dict(os.environ,{'BBLIA_SESSION_KEY':Fernet.generate_key().decode()}), patch.object(store.db,'using_postgres',return_value=True), patch.object(store.db,'connect',side_effect=lambda _:sqlite3.connect(path)):
                 sid=secrets.token_urlsafe(32)
