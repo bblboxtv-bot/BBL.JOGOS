@@ -41,3 +41,12 @@ def charge(user_id,feature,request_ref,consented,admin=False):
         raise CreditGateError("Identificador invalido.",400)
     try:return wallet.spend(user_id,result["charge"],feature+":"+request_ref)
     except wallet.WalletError as exc:raise CreditGateError(str(exc),exc.status)
+
+def refund(user_id,feature,request_ref):
+    """Refund a known debit once, for a failed paid request."""
+    if feature not in ("chat","voice","transcribe","realtime"):
+        raise CreditGateError("Recurso desconhecido.",400)
+    if not isinstance(request_ref,str) or not 1<=len(request_ref)<=120:
+        raise CreditGateError("Identificador invalido.",400)
+    try:return wallet.refund_spend(user_id,feature+":"+request_ref)
+    except wallet.WalletError as exc:raise CreditGateError(str(exc),exc.status)
