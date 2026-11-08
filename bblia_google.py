@@ -32,7 +32,7 @@ def session(cookie):
         sid=sid.value if sid else ''
     except Exception: return None
     with LOCK:
-        value=SESSIONS.get(sid) or durable.load(sid)
+        value=durable.load(sid) if durable.enabled() else SESSIONS.get(sid)
         if value and value['expires']>time.time(): return value
         SESSIONS.pop(sid,None)
     return None
@@ -136,8 +136,8 @@ def callback(cookie, query):
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
     c=SimpleCookie();c.load(cookie);old=c['__Host-bblia_google'].value;new=secrets.token_urlsafe(32)
     with LOCK:SESSIONS.pop(old,None);SESSIONS[new]=s
-    durable.delete(old)
     durable.save(new,s)
+    durable.delete(old)
     return cookie_value(new)
 
 
@@ -197,6 +197,7 @@ def mobile_redeem(tx,proof):
         SESSIONS[new]=dict(s)
         SESSIONS[new].pop('mobile_tx',None)
         durable.save(new,SESSIONS[new])
+        durable.delete(sid)
     return {'authenticated':True},cookie_value(new)
 
 def access(cookie, service):
@@ -274,6 +275,7 @@ def disconnect(cookie, revoke=True):
     c=SimpleCookie();c.load(cookie or '');m=c.get('__Host-bblia_google')
     if not m and c.get('__Host-bblia_email'):return email_auth.logout(cookie)
     with LOCK:s=SESSIONS.pop(m.value,None) if m else None
+    if m and not s:s=durable.load(m.value)
     if m:durable.delete(m.value)
     # Local session is always removed, even if Google is unavailable.
     revoked=False
