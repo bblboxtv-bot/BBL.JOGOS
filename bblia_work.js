@@ -157,8 +157,9 @@ async function showGoogleConnections(){
   const choices=[];for(const [key,name] of [['email','Gmail'],['calendar','Agenda Google'],['drive','Google Drive'],['login','Login da BBLIA'],['sync','Histórico e projetos na nuvem']]){
    const label=document.createElement('label');label.style.display='block';const input=document.createElement('input');input.type='checkbox';input.checked=s.services.includes(key);label.append(input,document.createTextNode(' '+name));el.append(label);choices.push([key,input]);
   }
+  const saveNote=document.createElement('p');saveNote.textContent='Para salvar mudanças nas permissões, toque em Salvar alterações e confirme na tela do Google. Apenas marcar as caixas não altera a autorização.';el.append(saveNote);
   const detail=document.createElement('p');detail.textContent='Cada serviço tem sua permissão: consultar e-mails, eventos e arquivos; login e sincronização gravam seus dados na área privada da BBLIA no Drive. O conteúdo consultado no chat é enviado ao serviço de IA para responder ao seu pedido.';el.append(detail);
-  if(s.configured)button(el,s.connected?'Alterar serviços ou trocar conta':'Conectar com Google',async()=>{
+  if(s.configured)button(el,s.connected?'Salvar alterações e autorizar no Google':'Conectar com Google',async()=>{
    try{const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);if(!selected.length)return notify('Escolha pelo menos um serviço.');const result=await googleCall('start',{services:selected});location.assign(result.url)}catch(e){notify(e.message)}
   });
   else {const help=document.createElement('p');help.textContent='Falta configurar o cliente Google da BBLIA no servidor. Não envie sua senha. Depois da configuração, o botão Conectar com Google será liberado.';el.append(help)}
@@ -167,6 +168,7 @@ async function showGoogleConnections(){
     if(!s.services.includes(service))continue;
     button(el,label,async()=>{try{notify('Consultando Google...');const result=await googleCall('query',{tool,args:{consulta:''}});const out=document.createElement('pre');out.style.whiteSpace='pre-wrap';out.style.overflowWrap='anywhere';out.textContent=JSON.stringify(result,null,2);el.append(out);notify('Consulta concluída')}catch(e){notify(e.message)}});
    }
+   button(el,'Sair da BBLIA / trocar e-mail',()=>showAccount());
    button(el,'Desconectar conta Google',async()=>{try{const result=await googleCall('disconnect',{});await cloudLeave();await showGoogleConnections();notify(result.revoked?'Conta desconectada e autorização revogada.':'Conta desconectada da BBLIA. Revise também as permissões na sua conta Google.')}catch(e){notify(e.message)}});
   }
  }catch(e){el.append(document.createTextNode(e.message))}
