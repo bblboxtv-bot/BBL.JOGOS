@@ -114,6 +114,7 @@ class Handler(BaseHTTPRequestHandler):
    if not 1<=length<=(sync.MAX_BYTES+4096 if path=='/api/sync' else 4096):return self.google_reply(400,{'error':'Pedido inválido.'})
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):raise ValueError()
+   if path=='/api/google/save':return self.google_reply(200,google.save_services(cookie,data.get('services')))
    if path=='/api/sync':return self.google_reply(200,sync.save(cookie,data))
    if path=='/api/mobile/begin':return self.google_reply(200,google.mobile_begin())
    if path=='/api/mobile/redeem':
