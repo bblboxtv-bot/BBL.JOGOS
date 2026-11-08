@@ -95,7 +95,9 @@ def spend(user_id,credits,ref):
   con=_db()
   try:
    con.execute('BEGIN IMMEDIATE')
-   if con.execute('SELECT 1 FROM movements WHERE ref=?',('spend:'+ref,)).fetchone():
+   existing=con.execute('SELECT user_id FROM movements WHERE ref=?',('spend:'+ref,)).fetchone()
+   if existing:
+    if existing[0]!=user_id:raise WalletError('Referencia ja utilizada por outra conta.',409)
     con.commit();return {'charged':False,**balance(user_id)}
    _move(con,user_id,-credits,'usage','spend:'+ref)
    con.commit();return {'charged':True,**balance(user_id)}
