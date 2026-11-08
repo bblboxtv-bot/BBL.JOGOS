@@ -86,6 +86,7 @@ class Handler(BaseHTTPRequestHandler):
  def reply(self,code,obj):
   body=json.dumps(obj,ensure_ascii=False).encode()
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+  return code
  def google_reply(self,code,obj,cookie=None):
   body=json.dumps(obj,ensure_ascii=False).encode()
   self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(body)))
@@ -508,13 +509,22 @@ refresh();</script></html>""".encode()
     if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})
     # Paid OpenAI chat: server-side atomic debit, enabled only after price approval.
     # Admin account retains its existing validated behavior.
+    charged_ref=None
     if account['role']!='admin' and os.getenv('BBLIA_ENFORCE_CHAT_CREDITS')=='1':
      import bblia_credit_gate as credit_gate
+     charged_ref=__import__('secrets').token_urlsafe(18)
      try:
-      credit_gate.charge(account['user']['id'],'chat',__import__('secrets').token_urlsafe(18),data.get('paid_authorized'))
+      credit_gate.charge(account['user']['id'],'chat',charged_ref,data.get('paid_authorized'))
      except credit_gate.CreditGateError as exc:
       return self.reply(exc.status,{'error':str(exc)})
-    self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))
+    try:
+     response_status=self.call_openai(key,safe,data.get("preferences",{}),data.get("project",{}))
+    except Exception:
+     if charged_ref:
+      credit_gate.refund(account['user']['id'],'chat',charged_ref)
+     raise
+    if charged_ref and response_status!=200:
+     credit_gate.refund(account['user']['id'],'chat',charged_ref)
    finally:
     IN_FLIGHT.release()
   except ValueError as exc:self.reply(400,{'error':str(exc)})
@@ -623,17 +633,17 @@ refresh();</script></html>""".encode()
    if force_web and (not web_used or not sources):
     return self.reply(502,{'error':'Não foi possível confirmar a pesquisa na internet. Tente novamente; não vou apresentar uma resposta sem verificar as fontes.'})
    usage=result.get('usage',{})
-   self.reply(200,{'answer':answer or ('Arquivos prontos para baixar.' if artifacts else 'Sem resposta textual.'),'artifacts':artifacts,'sources':sources,'web_used':web_used,'usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
+   return self.reply(200,{'answer':answer or ('Arquivos prontos para baixar.' if artifacts else 'Sem resposta textual.'),'artifacts':artifacts,'sources':sources,'web_used':web_used,'usage':{'input':usage.get('input_tokens',0),'output':usage.get('output_tokens',0)}})
   except urllib.error.HTTPError as e:
    try:
     details=json.loads(e.read(2048)).get('error',{})
     code=details.get('code','')
    except Exception:code=''
-   if e.code==429:self.reply(503,{'error':'Limite ou saldo da API OpenAI atingido. Verifique os creditos antes de continuar.'})
-   elif e.code==401:self.reply(503,{'error':'Chave da API OpenAI invalida ou sem permissao.'})
-   elif e.code==400:self.reply(502,{'error':'Configuracao de modelo ou ferramenta incompatível na API.','codigo':str(code)[:60]})
-   else:self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
-  except Exception:self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
+   if e.code==429:return self.reply(503,{'error':'Limite ou saldo da API OpenAI atingido. Verifique os creditos antes de continuar.'})
+   elif e.code==401:return self.reply(503,{'error':'Chave da API OpenAI invalida ou sem permissao.'})
+   elif e.code==400:return self.reply(502,{'error':'Configuracao de modelo ou ferramenta incompatível na API.','codigo':str(code)[:60]})
+   else:return self.reply(502,{'error':'Falha da API OpenAI (HTTP %s)'%e.code})
+  except Exception:return self.reply(500,{'error':'Falha temporaria. Tente novamente.'})
 if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
