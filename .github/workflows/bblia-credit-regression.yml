@@ -1,0 +1,19 @@
+name: BBLIA credit and subscription regression
+on:
+  push:
+    branches:
+      - bblia-google-session-persistence-20261108
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile production modules
+        run: python -m py_compile bblia_app.py bblia_credit_gate.py bblia_wallet.py bblia_subscriptions.py bblia_plan_rules.py
+      - name: Run credit and subscription regression tests
+        run: python -m unittest -v test_bblia_credit_gate test_bblia_plan_rules test_bblia_subscriptions
