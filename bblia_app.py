@@ -10,6 +10,12 @@ import bblia_google as google
 import bblia_usage as usage
 import bblia_wallet as wallet
 import bblia_pix as pix
+if __import__('os').getenv('BBLIA_STAGE6_MP_CHECK')=='1':
+ try:
+  _mp_me=pix._request('/users/me')
+  print('BBLIA_STAGE6_MP_AUTH='+('PASS' if _mp_me.get('id') else 'FAIL'),flush=True)
+ except Exception as _mp_error:
+  print('BBLIA_STAGE6_MP_AUTH=FAIL ('+type(_mp_error).__name__+')',flush=True)
 import bblia_stage5 as stage5
 import bblia_email_auth as email_auth
 import html
