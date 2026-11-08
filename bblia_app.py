@@ -85,9 +85,16 @@ class Handler(BaseHTTPRequestHandler):
    if path=='/api/account':return self.google_reply(200,google.status(cookie))
    if path=='/api/sync' and self.command=='GET':return self.google_reply(200,sync.load(cookie))
    if path=='/api/google/status':return self.google_reply(200,google.status(cookie))
+   if path=='/mobile-login':
+    from urllib.parse import parse_qs
+    tx=parse_qs(urlsplit(self.path).query).get('tx',[''])[0]
+    result,new_cookie=google.mobile_browser_start(tx)
+    self.send_response(303);self.send_header('Location',result['url']);self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Content-Length','0');self.end_headers();return
    if path=='/google-callback':
     new_cookie=google.callback(cookie,urlsplit(self.path).query)
-    self.send_response(303);self.send_header('Location','/?google=connected');self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Length','0');self.end_headers();return
+    tx=google.mobile_complete(new_cookie)
+    target=('bblia://auth?tx='+tx) if tx else '/?google=connected'
+    self.send_response(303);self.send_header('Location',target);self.send_header('Set-Cookie',new_cookie);self.send_header('Cache-Control','no-store');self.send_header('Referrer-Policy','no-referrer');self.send_header('Content-Length','0');self.end_headers();return
    google.check_origin(self.headers)
    if path in ('/api/google/disconnect','/api/account/logout'):
     result,new_cookie=google.disconnect(cookie,revoke=path!='/api/account/logout');return self.google_reply(200,result,new_cookie)
@@ -96,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
    data=json.loads(self.rfile.read(length))
    if not isinstance(data,dict):raise ValueError()
    if path=='/api/sync':return self.google_reply(200,sync.save(cookie,data))
+   if path=='/api/mobile/begin':return self.google_reply(200,google.mobile_begin())
+   if path=='/api/mobile/redeem':
+    result,new_cookie=google.mobile_redeem(data.get('transaction'),data.get('proof'))
+    return self.google_reply(200,result,new_cookie)
    if path=='/api/account/start':
     current=google.status(cookie)['services']
     services=list(dict.fromkeys(current+['login','sync']))
@@ -139,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
   if path.startswith('/api/') and path not in ('/api/account','/api/google/status','/api/sync','/api/weather','/api/lottery') and not self.require_account(feature=path):return
   if urlsplit(self.path).path.startswith('/api/apk/download/'):return self.deliver_apk()
 
-  if urlsplit(self.path).path in ('/api/google/status','/google-callback','/api/account','/api/sync'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/status','/google-callback','/mobile-login','/api/account','/api/sync'):return self.google_route()
   if urlsplit(self.path).path.startswith('/api/media/jobs/') and urlsplit(self.path).path.endswith('/video'):return self.serve_video()
   if urlsplit(self.path).path.startswith('/api/work/jobs/'):
    try:
@@ -317,8 +328,8 @@ class Handler(BaseHTTPRequestHandler):
    ZIP_SLOTS.release()
  def do_POST(self):
   path=urlsplit(self.path).path
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout') and not self.require_account():return
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/sync','/api/chat') and not self.require_account(feature=path):return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
@@ -328,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
    except tv_remote.TVError as exc:return self.reply(exc.status,{'error':str(exc)})
    except (ValueError,TypeError):return self.reply(400,{'error':'Pedido inválido'})
   if urlsplit(self.path).path.startswith('/api/apk/upload/'):return self.receive_compiled_apk()
-  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/sync'):return self.google_route()
+  if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path=='/api/zip/analyze':return self.zip_inspect()
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
