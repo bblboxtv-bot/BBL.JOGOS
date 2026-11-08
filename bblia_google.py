@@ -45,7 +45,7 @@ def status(cookie):
     user = s.get('user') if s and s.get('token') else None
     owner_email = os.getenv('BBLIA_ADMIN_EMAIL', 'bbl.boxtv@gmail.com').strip().casefold()
     role = ('admin' if user and not str(user.get('id','')).startswith('email:') and user.get('email', '').strip().casefold() == owner_email else 'client') if user else 'guest'
-    return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':False, 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
+    return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':os.getenv('BBLIA_EMAIL_REGISTRATION','disabled')=='enabled', 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
