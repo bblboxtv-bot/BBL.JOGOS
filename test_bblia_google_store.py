@@ -12,7 +12,9 @@ class SessionStoreTests(unittest.TestCase):
                 data={'expires':time.time()+3600,'token':'TEST_PRIVATE_TOKEN','user':{'id':'google-test-user'}}
                 store.save(sid,data)
                 self.assertEqual(store.load(sid),data)
-                row=sqlite3.connect(path).execute('SELECT sid_hash,payload FROM bblia_google_sessions').fetchone()
+                with sqlite3.connect(path) as connection:
+                    row=connection.execute('SELECT sid_hash,payload FROM bblia_google_sessions').fetchone()
+                connection.close()
                 self.assertNotIn(sid,str(row))
                 self.assertNotIn('TEST_PRIVATE_TOKEN',str(row))
                 self.assertIsNone(store.load('wrong-session'))
