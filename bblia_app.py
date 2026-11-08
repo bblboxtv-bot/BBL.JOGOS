@@ -6,6 +6,8 @@ import bblia_runtime as runtime
 import bblia_sync as sync
 import bblia_google as google
 import bblia_usage as usage
+import bblia_wallet as wallet
+import bblia_pix as pix
 import html
 from bblia_work import memory_context
 from bblia_self import CREATIVE_GUIDANCE
@@ -141,6 +143,13 @@ class Handler(BaseHTTPRequestHandler):
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
   path=urlsplit(self.path).path
+  if path in ('/api/wallet','/api/wallet/history','/api/wallet/packages'):
+   if not self.require_account():return
+   user=google.status(self.headers.get('Cookie',''))['user']['id']
+   try:
+    result=wallet.balance(user) if path=='/api/wallet' else (wallet.history(user) if path.endswith('/history') else {'packages':wallet.packages(),'pix_configured':pix.configured()})
+    return self.reply(200,result)
+   except (wallet.WalletError,OSError) as exc:return self.reply(getattr(exc,'status',503),{'error':str(exc)})
   if path=='/api/usage':
    if not self.require_account():return
    account=google.status(self.headers.get('Cookie',''))
@@ -328,8 +337,31 @@ class Handler(BaseHTTPRequestHandler):
    ZIP_SLOTS.release()
  def do_POST(self):
   path=urlsplit(self.path).path
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem') and not self.require_account():return
-  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat') and not self.require_account(feature=path):return
+  if path=='/api/payments/webhook':
+   try:
+    from urllib.parse import parse_qs
+    q=parse_qs(urlsplit(self.path).query)
+    length=int(self.headers.get('Content-Length','0'))
+    if length<0 or length>8192:return self.reply(413,{'error':'Payload invalido'})
+    data=json.loads(self.rfile.read(length)) if length else {}
+    payment_id=(data.get('data') or {}).get('id') if isinstance(data,dict) and isinstance(data.get('data'),dict) else None
+    payment_id=payment_id or q.get('data.id',[None])[0]
+    if payment_id:pix.reconcile(str(payment_id))
+    return self.reply(200,{'received':True})
+   except (wallet.WalletError,ValueError,TypeError) as exc:return self.reply(getattr(exc,'status',400),{'error':str(exc)})
+  if path=='/api/wallet/pix':
+   if not self.require_account():return
+   try:
+    google.check_origin(self.headers)
+    length=int(self.headers.get('Content-Length','0'))
+    if not 1<=length<=2048:return self.reply(400,{'error':'Pedido invalido'})
+    data=json.loads(self.rfile.read(length))
+    if not isinstance(data,dict):raise ValueError()
+    account=google.status(self.headers.get('Cookie',''))['user']
+    return self.reply(200,pix.create_pix(account['id'],account['email'],data.get('amount_cents')))
+   except (wallet.WalletError,ValueError,TypeError) as exc:return self.reply(getattr(exc,'status',400),{'error':str(exc)})
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/payments/webhook') and not self.require_account():return
+  if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat','/api/payments/webhook','/api/wallet/pix') and not self.require_account(feature=path):return
   if (path.startswith('/api/work/') or path.startswith('/api/computer/') or path.startswith('/api/tv/') or path.startswith('/api/apk/') or path.startswith('/api/zip/')) and not self.require_account(admin=True):return
   if urlsplit(self.path).path.startswith('/api/tv/'):
    try:
