@@ -56,10 +56,30 @@ def status(cookie):
     google_owner = bool(user and not str(user.get('id','')).startswith('email:') and user.get('email','').strip().casefold()==owner_email)
     role = ('admin' if local_owner or google_owner else 'client') if user else 'guest'
     return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':os.getenv('BBLIA_EMAIL_REGISTRATION','disabled')=='enabled', 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
-            'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[])],
+            'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[]) and k in s.get('selected_services',list(SCOPES))],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
             'session_note':('Sessão Google protegida no banco e recuperável após reinício.' if durable.enabled() else 'Conexão privada neste navegador por até 12 horas. Reinícios do servidor exigem reconectar.')}
+
+def save_services(cookie, services):
+    s=session(cookie)
+    if not s or not s.get('token') or not s.get('user'):
+        raise GoogleError('Entre na conta antes de salvar.',401)
+    if not isinstance(services,list) or not services or any(k not in SCOPES for k in services):
+        raise GoogleError('Selecione pelo menos um serviço válido.')
+    granted={k for k,v in SCOPES.items() if v in s.get('scopes',[])}
+    missing=set(services)-granted
+    if missing:
+        raise GoogleError('Para adicionar novas permissões, é necessário autorizar no Google: '+', '.join(sorted(missing)),409)
+    if 'login' not in services or 'sync' not in services:
+        raise GoogleError('Mantenha Login e Histórico ativos para continuar usando sua conta BBLIA.')
+    s['selected_services']=list(dict.fromkeys(services))
+    sid=_sid_from_cookie(cookie)
+    if not sid:raise GoogleError('Sessão inválida. Entre novamente.',401)
+    with LOCK:
+        SESSIONS[sid]=s
+        durable.save(sid,s)
+    return {'saved':True,'services':s['selected_services'],'message':'Salvo com sucesso.'}
 
 def check_origin(headers):
     expected=urlsplit(config()[2]); origin=headers.get('Origin','')
