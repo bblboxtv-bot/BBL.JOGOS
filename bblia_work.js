@@ -159,16 +159,23 @@ async function showGoogleConnections(){
   }
   const saveNote=document.createElement('p');saveNote.textContent='Marque os serviços e toque em Salvar. As permissões já autorizadas serão salvas sem abrir o Google novamente.';el.append(saveNote);
   const detail=document.createElement('p');detail.textContent='Gmail, Agenda e Drive são acessados somente com as permissões concedidas. Login e sincronização mantêm o espaço privado da BBLIA.';el.append(detail);
-  if(s.configured)button(el,s.connected?'Salvar':'Conectar com Google',async()=>{
-   try{
-    const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);
-    if(!selected.length)return notify('Escolha pelo menos um serviço.');
-    if(!s.connected){const result=await googleCall('start',{services:selected});location.assign(result.url);return}
-    const result=await googleCall('save',{services:selected});
-    notify(result.message||'Salvo com sucesso.');
-    const ok=document.createElement('p');ok.setAttribute('role','status');ok.style.color='#8cf0b5';ok.textContent='✓ Salvo com sucesso.';el.append(ok);
-   }catch(e){notify(e.message)}
-  });
+  if(s.configured){
+   const saveButton=button(el,s.connected?'Salvar':'Conectar com Google',async()=>{
+    const prior=saveButton.textContent;
+    saveButton.disabled=true;saveButton.textContent='Salvando…';
+    feedback.textContent='Enviando configurações…';feedback.style.color='#ffda82';
+    try{
+     const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);
+     if(!selected.length)throw Error('Escolha pelo menos um serviço.');
+     if(!s.connected){const result=await googleCall('start',{services:selected});location.assign(result.url);return}
+     const result=await googleCall('save',{services:selected});
+     feedback.style.color='#8cf0b5';feedback.textContent='✓ '+(result.message||'Salvo com sucesso.');
+    }catch(e){
+     feedback.style.color='#ff9999';feedback.textContent='Não foi possível salvar: '+e.message;
+    }finally{saveButton.disabled=false;saveButton.textContent=prior}
+   });
+   const feedback=document.createElement('p');feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');feedback.style.cssText='min-height:24px;font-weight:700';el.append(feedback);
+  }
   else {const help=document.createElement('p');help.textContent='Falta configurar o cliente Google da BBLIA no servidor. Não envie sua senha. Depois da configuração, o botão Conectar com Google será liberado.';el.append(help)}
   if(s.connected){
    for(const [service,label,tool] of [['email','Testar Gmail','consultar_email'],['calendar','Testar agenda','consultar_agenda'],['drive','Testar Drive','buscar_drive']]){
