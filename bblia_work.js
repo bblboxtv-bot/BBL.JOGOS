@@ -283,3 +283,36 @@ if(typeof window!=='undefined'){
 initWorkbench();
 
 
+
+
+async function bbliaMenuLogout(){
+ closeDrawer();
+ if(send.disabled||voiceMode)return notify('Finalize a resposta ou a conversa por voz antes de sair.');
+ try{
+  await saveChat();
+  if(cloudUser&&cloudGeneration!==cloudSavedGeneration){
+   await cloudSync(true);
+   if(cloudGeneration!==cloudSavedGeneration)return notify('Sincronização pendente. Faça backup antes de sair.');
+  }
+  await accountRequest('/api/account/logout',{});
+  await cloudLeave();
+  location.replace('/?logged_out=1');
+ }catch(e){notify('Não foi possível sair: '+e.message)}
+}
+function bbliaLoginGate(){
+ if(document.getElementById('bbliaLoginGate'))return;
+ const gate=document.createElement('div');gate.id='bbliaLoginGate';
+ gate.style.cssText='position:fixed;inset:0;z-index:99999;background:#080e24;color:white;display:flex;align-items:center;justify-content:center;padding:22px;font:16px system-ui';
+ const box=document.createElement('section');box.style.cssText='max-width:430px;width:100%;text-align:center;background:#152247;border:1px solid #a78348;border-radius:20px;padding:28px';
+ const title=document.createElement('h2');title.textContent='BBLIA — Entre na sua conta';
+ const p=document.createElement('p');p.textContent='Você saiu da BBLIA. Para usar o chat e os recursos novamente, entre com uma conta Google.';
+ const b=document.createElement('button');b.textContent='Entrar com Google';b.className='choice';b.style.textAlign='center';
+ b.onclick=async()=>{b.disabled=true;try{const result=await accountRequest('/api/account/start',{});location.assign(result.url)}catch(e){p.textContent='Não foi possível entrar: '+e.message;b.disabled=false}};
+ box.append(title,p,b);gate.append(box);document.body.append(gate);
+}
+(async function bbliaCheckLoginOnLoad(){
+ try{
+  const state=await accountRequest('/api/account');
+  if(!state.authenticated)bbliaLoginGate();
+ }catch(e){bbliaLoginGate()}
+})();
