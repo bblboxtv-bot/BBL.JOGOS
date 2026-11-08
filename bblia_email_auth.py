@@ -5,7 +5,7 @@ from pathlib import Path
 LOCK=threading.RLock()
 ATTEMPTS={}
 
-TTL=12*3600
+TTL=30*24*3600
 class AuthError(Exception):
  def __init__(self,message,status=400):super().__init__(message);self.status=status
 def _db():
