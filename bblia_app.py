@@ -384,7 +384,11 @@ class Handler(BaseHTTPRequestHandler):
     if provider=='gemini':
      from bblia_gemini import responder, GeminiError
      try:return self.reply(200,responder(safe,preferences=data.get("preferences"),project=data.get("project"),cookie=self.headers.get("Cookie",""),weather=weather_for,lottery=mega_sena))
-     except GeminiError as exc:return self.reply(503,{'error':str(exc)})
+     except GeminiError as exc:
+      if account['role']!='admin':
+       try:usage.refund_text(account['user']['id'])
+       except (RuntimeError,OSError):pass
+      return self.reply(503,{'error':str(exc)})
     if data.get('paid_authorized') is not True:return self.reply(400,{'error':'O uso pago da OpenAI exige autorização explícita nesta tarefa.'})
     key=os.getenv('OPENAI_API_KEY','')
     if not key:return self.reply(503,{'error':'OpenAI não configurada no servidor.'})
