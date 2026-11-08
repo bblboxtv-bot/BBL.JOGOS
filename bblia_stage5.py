@@ -12,8 +12,8 @@ def capabilities():
   'stage':5,
   'features':{
    'projects':{'state':'ready','detail':'Creates and revises project source files; files are downloadable.'},
-   'javascript_tests':{'state':status(runtime.status).get('state','unavailable'),'detail':'Sandboxed JavaScript logic tests, not full browser or APK testing.'},
-   'documents':{'state':status(documents.status).get('state','unavailable'),'detail':'Structured document generation; output must be reviewed.'},
+   'javascript_tests':{'state':status(lambda: {'state':'ready' if hasattr(runtime,'run') or hasattr(runtime,'execute') else 'available_module'}).get('state','unavailable'),'detail':'Sandboxed JavaScript logic tests, not full browser or APK testing.'},
+   'documents':{'state':status(lambda: {'state':'ready' if hasattr(documents,'generate') or hasattr(documents,'create') else 'available_module'}).get('state','unavailable'),'detail':'Structured document generation; output must be reviewed.'},
    'android_apk':{'state':'requires_connected_computer','detail':'Compilation requires an authorized connected computer, Android SDK and verified build output.'},
    'computer_control':{'state':'requires_owner_connection','detail':'Only via user-authorized Desktop Commander; no unrestricted access.'},
    'tvbox_diagnostics':{'state':'requires_owner_pairing','detail':'Device pairing and scoped credentials required; launcher is not modified by this status check.'},
