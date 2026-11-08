@@ -1,3 +1,4 @@
+import bblia_auth_smoke  # isolated opt-in email auth integration test
 import sitecustomize  # opt-in stage6 DB smoke check; disabled unless explicitly enabled
 import bblia_tv as tv_remote
 import bblia_apk_delivery as apk_delivery
