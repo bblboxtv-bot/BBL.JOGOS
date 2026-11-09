@@ -33,7 +33,7 @@ class DurableSessionTests(unittest.TestCase):
 
     def test_token_not_saved_plaintext(self):
         sid = store.create(self.path, "google", "google:123", now=100)
-        with sqlite3.connect(self.path) as db:
+        with store.connection(self.path) as db:
             stored = db.execute("SELECT sid_hash FROM bblia_sessions").fetchone()[0]
         self.assertNotEqual(sid, stored)
         self.assertEqual(len(stored), 64)
