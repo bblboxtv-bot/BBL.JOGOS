@@ -74,6 +74,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
+        fetch_site = self.headers.get("Sec-Fetch-Site", "")
+        if fetch_site and fetch_site not in ("same-origin", "none"):
+            return self.reply(403, {"error": "Solicitação entre sites bloqueada."})
         origin = self.headers.get("Origin")
         host = self.headers.get("Host", "")
         if origin and origin not in ("http://" + host, "https://" + host):
