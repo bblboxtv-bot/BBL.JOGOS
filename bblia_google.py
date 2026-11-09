@@ -22,7 +22,7 @@ class GoogleError(Exception):
 
 def config():
     return (os.getenv('GOOGLE_CLIENT_ID','').strip(), os.getenv('GOOGLE_CLIENT_SECRET','').strip(),
-            os.getenv('GOOGLE_REDIRECT_URI','https://bblia-teste.onrender.com/google-callback').strip())
+            os.getenv('GOOGLE_REDIRECT_URI','https://bblia-stage6-validacao.onrender.com/google-callback').strip())
 
 def session(cookie):
     local=email_auth.session(cookie)
