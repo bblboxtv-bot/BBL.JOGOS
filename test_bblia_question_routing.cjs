@@ -1,0 +1,12 @@
+'use strict';
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(process.argv[2],'utf8');
+const start=source.indexOf('if(/\\b(?:clima|previsão|previsao|temperatura|chuva|meteorologia)');
+assert(start>=0,'weather intent must be present');
+const end=source.indexOf('.test(text))',start);
+assert(end>start,'weather intent must be testable');
+const expression=source.slice(start+3,end+11);
+const weather=vm.runInNewContext('(text)=>'+expression);
+for(const text of ['Qual é o tempo hoje?','Vai chover amanhã?','Previsão do tempo para amanhã','Como está o clima?'])assert(weather(text),text);
+for(const text of ['Qual é o tempo de resposta da BBLIA?','Preciso de um tempo para pensar','Analise o tempo de execução do aplicativo','Como configurar o temporizador?'])assert(!weather(text),text);
+console.log('QUESTION_ROUTING_TESTS_PASS 8/8');
