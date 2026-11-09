@@ -50,5 +50,24 @@ class ReadinessHttpTests(unittest.TestCase):
                 result=json.load(response)
             self.assertFalse(result["phone_sms"])
 
+    def test_logout_revokes_real_http_cookie(self):
+        from urllib.request import Request
+        _, cookie=app.auth.login_verified(str(self.db),"google","google:test-verified",now=1000000000)
+        cookie_header=cookie.split(";",1)[0]
+        base="http://127.0.0.1:%d"%self.server.server_port
+        # This fixture bypasses provider login; it tests only HTTP session handling.
+        with urlopen(Request(base+"/api/auth/status",headers={"Cookie":cookie_header}),timeout=4) as response:
+            self.assertFalse(json.load(response)["authenticated"])
+        _, fresh_cookie=app.auth.login_verified(str(self.db),"google","google:test-verified")
+        cookie_header=fresh_cookie.split(";",1)[0]
+        with urlopen(Request(base+"/api/auth/status",headers={"Cookie":cookie_header}),timeout=4) as response:
+            self.assertTrue(json.load(response)["authenticated"])
+        request=Request(base+"/api/auth/logout",data=b"{}",headers={"Cookie":cookie_header,"Content-Type":"application/json"},method="POST")
+        with urlopen(request,timeout=4) as response:
+            self.assertFalse(json.load(response)["authenticated"])
+            self.assertIn("Max-Age=0",response.headers.get("Set-Cookie",""))
+        with urlopen(Request(base+"/api/auth/status",headers={"Cookie":cookie_header}),timeout=4) as response:
+            self.assertFalse(json.load(response)["authenticated"])
+
 if __name__=="__main__":
     unittest.main()
