@@ -31,6 +31,13 @@ $('logout').addEventListener('click',async()=>{
  }catch(err){notice(err.message)}
 });
 document.addEventListener('DOMContentLoaded',()=>{refreshSession().catch(()=>{});});
+function normalizeBrazilPhone(raw){
+ const value=String(raw||'').replace(/[^0-9+]/g,'');
+ if(/^\+?[1-9][0-9]{7,14}$/.test(value)&&value.startsWith('+'))return value;
+ if(/^55[1-9][0-9]{9,10}$/.test(value))return '+'+value;
+ if(/^[1-9][0-9]{9,10}$/.test(value))return '+55'+value;
+ throw Error('Informe um telefone válido com DDD, por exemplo +55 21 99999-9999.');
+}
 function notice(message){$('message').textContent=message}
 async function request(path,body){
  const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -48,11 +55,11 @@ $('facebook').addEventListener('click',async()=>{
 });
 $('phone').addEventListener('click',()=>{const opened=$('phone-fields').classList.toggle('open');$('phone').setAttribute('aria-expanded',String(opened));});
 $('request').addEventListener('click',async()=>{
- try{notice('Solicitando código...');await request('/api/auth/phone/request',{phone:$('number').value.trim()});notice('Se o número estiver habilitado, o código será enviado por SMS.')}
+ try{notice('Solicitando código...');await request('/api/auth/phone/request',{phone:normalizeBrazilPhone($('number').value)});notice('Se o número estiver habilitado, o código será enviado por SMS.')}
  catch(err){notice(err.message)}
 });
 $('verify').addEventListener('click',async()=>{
- try{notice('Verificando código...');await request('/api/auth/phone/verify',{phone:$('number').value.trim(),code:$('otp').value.trim()});location.assign('/')}
+ try{notice('Verificando código...');await request('/api/auth/phone/verify',{phone:normalizeBrazilPhone($('number').value),code:$('otp').value.trim()});location.assign('/')}
  catch(err){notice(err.message)}
 });
 </script></body></html>
