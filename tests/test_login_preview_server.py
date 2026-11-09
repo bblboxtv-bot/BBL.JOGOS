@@ -64,6 +64,23 @@ class PreviewServerTests(unittest.TestCase):
     def test_origin_rejected(self):
         code,body,_=self.fetch("/api/auth/logout",{},origin="https://evil.invalid")
         self.assertEqual(code,403)
+    def test_facebook_callback_rejects_missing_browser_state(self):
+        code, body, _ = self.fetch("/auth/facebook/callback?state=forged&code=fake")
+        self.assertEqual(code, 403)
+
+    def test_facebook_callback_with_verified_identity(self):
+        from urllib.request import build_opener, HTTPHandler
+        class NoRedirect(HTTPHandler):
+            def http_response(self, request, response):
+                return response
+            https_response = http_response
+        with patch.object(preview.facebook, "callback", return_value={"subject": "facebook:123", "name": "Teste"}) as mocked:
+            req = Request(self.base + "/auth/facebook/callback?state=abc123&code=code123", headers={"Cookie": "__Host-bblia_fb_state=abc123"})
+            with build_opener(NoRedirect()).open(req, timeout=5) as response:
+                self.assertEqual(response.status, 303)
+                self.assertIn("__Host-bblia_session=", str(response.headers.get_all("Set-Cookie")))
+            mocked.assert_called_once_with("abc123", "code123")
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
