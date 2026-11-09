@@ -159,7 +159,7 @@ async function playSpeechBlob(blob,token){
  const url=URL.createObjectURL(blob),audio=unlockedAudio||new Audio();audio.setAttribute('playsinline','');audio.src=url;audio.defaultPlaybackRate=voicePlaybackRate;audio.playbackRate=voicePlaybackRate;audio.preservesPitch=true;audio.webkitPreservesPitch=true;currentAudio=audio;
  try{await new Promise((resolve,reject)=>{
   let timer;const finish=error=>{clearTimeout(timer);audio.onended=audio.onerror=null;voiceCancelPlayback=null;error?reject(error):resolve()};
-  voiceCancelPlayback=()=>finish();audio.onended=()=>finish();audio.onerror=()=>finish(Error('Falha ao reproduzir áudio.'));
+  voiceCancelPlayback=()=>{audio.pause();finish()};audio.onended=()=>finish();audio.onerror=()=>finish(Error('Falha ao reproduzir áudio.'));
   timer=setTimeout(()=>{audio.pause();finish(Error('A reprodução não terminou.'))},180000);
   if(token!==voiceToken)return finish();audio.play().catch(finish);
  })}finally{URL.revokeObjectURL(url);if(currentAudio===audio)currentAudio=null}
