@@ -152,6 +152,19 @@ class PreviewServerTests(unittest.TestCase):
         with urlopen(req, timeout=5) as response:
             self.assertEqual(response.status, 200)
 
+    def test_google_start_with_mocked_bridge(self):
+        with patch.object(preview.google_bridge, "start", return_value=({"url":"https://accounts.google.com/test"},"oauth-cookie")):
+            code, body, headers = self.fetch("/api/account/start", {})
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)["url"], "https://accounts.google.com/test")
+        self.assertEqual(headers.get("Set-Cookie"), "oauth-cookie")
+
+    def test_google_invalid_callback_does_not_issue_session(self):
+        with patch.object(preview.google_bridge, "complete", side_effect=preview.google_bridge.IsolatedGoogleError("invalid")):
+            code, body, headers = self.fetch("/auth/google/callback?state=invalid")
+        self.assertEqual(code, 403)
+        self.assertNotIn("Set-Cookie", headers)
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
