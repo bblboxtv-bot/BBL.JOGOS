@@ -175,6 +175,26 @@ class PreviewServerTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 303)
         self.assertIn("__Host-bblia_session=", caught.exception.headers.get("Set-Cookie", ""))
 
+    def test_google_session_persists_and_logout_revokes(self):
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+        with patch.object(preview.google_bridge, "complete", return_value="google:verified-persistence-subject"):
+            with self.assertRaises(HTTPError) as caught:
+                build_opener(NoRedirect).open(self.base + "/auth/google/callback?state=approved", timeout=5)
+        cookie = caught.exception.headers.get("Set-Cookie", "").split(";", 1)[0]
+        self.assertTrue(cookie.startswith("__Host-bblia_session="))
+        def send(path, data=None):
+            headers = {"Cookie": cookie}
+            if data is not None:
+                headers["Content-Type"] = "application/json"
+            req = Request(self.base + path, data=json.dumps(data).encode() if data is not None else None, headers=headers)
+            with urlopen(req, timeout=5) as response:
+                return json.loads(response.read())
+        self.assertTrue(send("/api/auth/status")["authenticated"])
+        self.assertTrue(send("/api/auth/logout", {})["ok"])
+        self.assertFalse(send("/api/auth/status")["authenticated"])
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
