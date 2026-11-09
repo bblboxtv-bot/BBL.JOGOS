@@ -17,7 +17,8 @@ import bblia_phone_auth as phone
 import bblia_google_isolated_bridge as google_bridge
 
 BASE = Path(__file__).resolve().parent
-HTML = (BASE / "bblia_login_visual_demo.html").read_bytes()\nLOGO = __import__("base64").b64decode((BASE / "bblia_login_logo_base64.txt").read_text().strip())
+HTML = (BASE / "bblia_login_visual_demo.html").read_bytes()
+LOGO = __import__("base64").b64decode((BASE / "bblia_login_logo_base64.txt").read_text().strip())
 DB = Path(os.environ.get("BBLIA_ISOLATED_SESSION_DB", str(BASE / "preview_sessions.sqlite3")))
 
 class Handler(BaseHTTPRequestHandler):
