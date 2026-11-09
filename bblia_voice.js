@@ -413,7 +413,7 @@ function realtimeTranscript(event,role,final){
  if(!entry){entry={bubble:add(role,text),text:'',saved:false,order:realtimeOrder.get(event.item_id)};realtimeTranscripts.set(key,entry)}
  entry.text=text;entry.bubble.textContent=text;
  if(final&&!entry.saved){
-  const next=Array.from(realtimeTranscripts.values()).filter(e=>e.saved&&e.order>entry.order).sort((a,b)=>a.order-b.order)[0];
+  // The first finalized event persists the turn; subsequent events update it.
   // Provider events may arrive out of order. Use the item order to insert
   // finalized turns without moving a new question ahead of an older answer.
   entry.saved=true;entry.message={role,content:text};
