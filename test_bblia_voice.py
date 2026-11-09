@@ -25,7 +25,9 @@ class VoiceSessionTests(unittest.TestCase):
             with patch.dict(os.environ,{'OPENAI_API_KEY':'server-secret'}),patch('urllib.request.urlopen',side_effect=upstream):
                 request=urllib.request.Request('http://127.0.0.1:'+str(server.server_port)+'/api/realtime-token',data=b'{"paid_authorized":true}')
                 with urllib.request.urlopen(request) as response:result=json.load(response)
-            self.assertEqual(result,{'token':'test-ephemeral'})
+            self.assertEqual(result['token'],'test-ephemeral')
+            self.assertEqual(result['model'],'gpt-realtime')
+            self.assertEqual(result['voice'],'marin')
             audio=payloads[0]['session']['audio']['input']
             self.assertTrue(audio['turn_detection']['interrupt_response'])
             self.assertTrue(audio['turn_detection']['create_response'])
