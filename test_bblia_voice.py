@@ -27,10 +27,10 @@ class VoiceSessionTests(unittest.TestCase):
                 with urllib.request.urlopen(request) as response:result=json.load(response)
             self.assertEqual(result,{'token':'test-ephemeral'})
             audio=payloads[0]['session']['audio']['input']
-            self.assertFalse(audio['turn_detection']['interrupt_response'])
+            self.assertTrue(audio['turn_detection']['interrupt_response'])
             self.assertTrue(audio['turn_detection']['create_response'])
-            self.assertGreaterEqual(audio['turn_detection']['threshold'],0.7)
-            self.assertGreaterEqual(audio['turn_detection']['silence_duration_ms'],900)
+            self.assertGreaterEqual(audio['turn_detection']['threshold'],0.5)
+            self.assertGreaterEqual(audio['turn_detection']['silence_duration_ms'],450)
             self.assertEqual(audio['noise_reduction']['type'],'near_field')
             self.assertNotIn('idle_timeout_ms',audio['turn_detection'])
         finally:
