@@ -5,7 +5,10 @@ must mount these functions on a separate HTTPS host and set the exact callback.
 """
 import os
 from urllib.parse import urlsplit
-import bblia_google as google
+try:
+    import bblia_google as google
+except ModuleNotFoundError:
+    google = None
 
 class IsolatedGoogleError(ValueError):
     pass
@@ -28,10 +31,14 @@ def require_isolated_config():
 
 def start():
     require_isolated_config()
+    if google is None:
+        raise IsolatedGoogleError("Dependências Google indisponíveis neste ambiente.")
     return google.start("", ["login"])
 
 def complete(cookie_header, query):
     require_isolated_config()
+    if google is None:
+        raise IsolatedGoogleError("Dependências Google indisponíveis neste ambiente.")
     google_cookie = google.callback(cookie_header, query)
     verified = google.session(google_cookie)
     user = verified.get("user") if verified else None
