@@ -137,6 +137,21 @@ class PreviewServerTests(unittest.TestCase):
         with urlopen(req, timeout=5) as response:
             self.assertFalse(json.load(response)["authenticated"])
 
+    def test_cross_site_fetch_metadata_rejected(self):
+        req = Request(self.base + "/api/auth/logout", data=b"{}", headers={
+            "Content-Type": "application/json", "Sec-Fetch-Site": "cross-site"
+        })
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(req, timeout=5)
+        self.assertEqual(caught.exception.code, 403)
+
+    def test_same_origin_fetch_metadata_allowed(self):
+        req = Request(self.base + "/api/auth/logout", data=b"{}", headers={
+            "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin"
+        })
+        with urlopen(req, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
