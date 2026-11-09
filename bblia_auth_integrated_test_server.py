@@ -91,6 +91,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif path == "/api/auth/readiness":
+            google_ready = False
+            try:
+                google_bridge.require_isolated_config()
+                google_ready = google_bridge.google is not None
+            except google_bridge.IsolatedGoogleError:
+                pass
+            facebook_ready = bool(os.getenv("FACEBOOK_APP_ID") and os.getenv("FACEBOOK_APP_SECRET"))
+            sms_ready = bool(os.getenv("BBLIA_OTP_SECRET", "") and os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN") and os.getenv("TWILIO_FROM_NUMBER"))
+            self.reply(200, {"google": google_ready, "facebook": facebook_ready, "phone_sms": sms_ready,
+                             "note": "Readiness is configuration only, not proof of successful real login."})
         elif path == "/api/auth/status":
             self.reply(200, auth.status(str(DB), self.headers.get("Cookie", "")))
         else:
