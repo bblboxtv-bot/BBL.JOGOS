@@ -5,10 +5,30 @@
 </style></head><body><main class="login" aria-labelledby="title"><div class="mark" id="title">BBLIA</div><p class="sub">Sua assistente inteligente.<br>Entre para continuar suas conversas.</p>
 <button id="google" type="button">Continuar com Google</button><button id="facebook" type="button" class="secondary">Continuar com Facebook</button><button id="phone" type="button" class="secondary" aria-expanded="false" aria-controls="phone-fields">Continuar com telefone</button>
 <section class="phone" id="phone-fields"><label for="number">Número com DDI</label><input id="number" type="tel" autocomplete="tel" placeholder="+55 21 99999-9999"><button id="request" type="button">Receber código SMS</button><label for="otp">Código recebido</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"><button id="verify" type="button">Confirmar código</button></section>
-<p id="message" role="status" aria-live="polite"></p><footer>Versão isolada de desenvolvimento • Nenhuma cobrança</footer></main>
+<section id="account" hidden><p id="account-info"></p><button id="logout" type="button" class="secondary">Sair da conta</button></section><p id="message" role="status" aria-live="polite"></p><footer>Versão isolada de desenvolvimento • Nenhuma cobrança</footer></main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
+async function refreshSession(){
+ try{
+  const response=await fetch('/api/auth/status',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error('Sessão indisponível');
+  const status=await response.json();
+  $('account').hidden=!status.authenticated;
+  $('account-info').textContent=status.authenticated?'Conectado com '+(status.provider||'conta BBLIA'):'';
+  for(const id of ['google','facebook','phone'])$(id).hidden=!!status.authenticated;
+  $('phone-fields').classList.remove('open');
+  $('phone').setAttribute('aria-expanded','false');
+ }catch(err){notice(err.message)}
+}
+$('logout').addEventListener('click',async()=>{
+ try{
+  await request('/api/auth/logout',{});
+  await refreshSession();
+  notice('Você saiu da conta.');
+ }catch(err){notice(err.message)}
+});
+document.addEventListener('DOMContentLoaded',refreshSession);
 function notice(message){$('message').textContent=message}
 async function request(path,body){
  const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
