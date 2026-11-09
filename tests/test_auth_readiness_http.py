@@ -69,5 +69,18 @@ class ReadinessHttpTests(unittest.TestCase):
         with urlopen(Request(base+"/api/auth/status",headers={"Cookie":cookie_header}),timeout=4) as response:
             self.assertFalse(json.load(response)["authenticated"])
 
+    def test_provider_routes_reject_missing_credentials(self):
+        from urllib.request import Request
+        from urllib.error import HTTPError
+        base="http://127.0.0.1:%d"%self.server.server_port
+        names=["BBLIA_ISOLATED_GOOGLE_OAUTH_ENABLED","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","FACEBOOK_APP_ID","FACEBOOK_APP_SECRET","BBLIA_OTP_SECRET","TWILIO_ACCOUNT_SID","TWILIO_AUTH_TOKEN","TWILIO_FROM_NUMBER"]
+        with patch.dict(os.environ,{k:"" for k in names}):
+            for route,payload in [("/api/account/start",{}),("/api/auth/facebook/start",{}),("/api/auth/phone/request",{"phone":"+5521999999999"})]:
+                with self.subTest(route=route):
+                    request=Request(base+route,data=json.dumps(payload).encode(),headers={"Content-Type":"application/json"},method="POST")
+                    with self.assertRaises(HTTPError) as raised:
+                        urlopen(request,timeout=4)
+                    self.assertEqual(raised.exception.code,503)
+
 if __name__=="__main__":
     unittest.main()
