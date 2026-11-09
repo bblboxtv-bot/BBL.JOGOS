@@ -9,6 +9,16 @@ import os
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
+
+@contextmanager
+def connection(path):
+    db = sqlite3.connect(path, timeout=10)
+    try:
+        with db:
+            yield db
+    finally:
+        db.close()
 
 TTL = 30 * 24 * 3600
 
@@ -21,7 +31,7 @@ def _hash(sid):
     return hashlib.sha256(sid.encode("ascii")).hexdigest()
 
 def initialize(path):
-    with sqlite3.connect(path, timeout=10) as db:
+    with connection(path) as db:
         db.execute("""CREATE TABLE IF NOT EXISTS bblia_sessions (
             sid_hash TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
@@ -36,7 +46,7 @@ def create(path, provider, subject, *, now=None):
         raise DurableSessionError("Identidade inválida.")
     now = time.time() if now is None else now
     sid = secrets.token_urlsafe(32)
-    with sqlite3.connect(path, timeout=10) as db:
+    with connection(path) as db:
         db.execute("INSERT INTO bblia_sessions VALUES (?,?,?,?)",
                    (_hash(sid), provider, subject, now + TTL))
     return sid
@@ -47,7 +57,7 @@ def load(path, sid, *, now=None):
         sid_hash = _hash(sid)
     except (DurableSessionError, UnicodeEncodeError):
         return None
-    with sqlite3.connect(path, timeout=10) as db:
+    with connection(path) as db:
         row = db.execute("SELECT provider,subject,expires FROM bblia_sessions WHERE sid_hash=?",
                          (sid_hash,)).fetchone()
         if not row:
@@ -62,6 +72,6 @@ def revoke(path, sid):
         sid_hash = _hash(sid)
     except (DurableSessionError, UnicodeEncodeError):
         return False
-    with sqlite3.connect(path, timeout=10) as db:
+    with connection(path) as db:
         result = db.execute("DELETE FROM bblia_sessions WHERE sid_hash=?", (sid_hash,))
         return result.rowcount == 1
