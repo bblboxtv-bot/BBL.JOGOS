@@ -168,7 +168,16 @@ async function showGoogleConnections(){
      const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);
      if(!selected.length)throw Error('Escolha pelo menos um serviço.');
      if(!s.connected){const result=await googleCall('start',{services:selected});location.assign(result.url);return}
-     const result=await googleCall('save',{services:selected});
+     let result;
+     try{result=await googleCall('save',{services:selected})}
+     catch(error){
+      if(/adicionar novas permissões|autorizar no Google/i.test(error.message)){
+       feedback.textContent='Abrindo o Google para autorizar as permissões adicionais…';
+       const authorization=await googleCall('start',{services:selected});
+       location.assign(authorization.url);return;
+      }
+      throw error;
+     }
      feedback.style.color='#8cf0b5';feedback.textContent='✓ '+(result.message||'Salvo com sucesso.');
     }catch(e){
      feedback.style.color='#ff9999';feedback.textContent='Não foi possível salvar: '+e.message;
