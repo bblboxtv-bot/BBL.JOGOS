@@ -34,6 +34,14 @@ class IncrementalConsentTests(unittest.TestCase):
   first=self.authorize('', ['login','sync'],['openid',g.SCOPES['sync']])
   with self.assertRaisesRegex(g.GoogleError,'outra conta Google'):
    self.authorize(first,['login','sync','calendar'],['openid',g.SCOPES['sync'],g.SCOPES['calendar']],identity='different-user')
+ def test_incremental_consent_requires_verified_identity(self):
+  first=self.authorize('', ['login','sync'],['openid',g.SCOPES['sync']])
+  result,temporary=g.start(first,['calendar'])
+  query=parse_qs(urlsplit(result['url']).query)
+  self.assertIn('openid',query['scope'][0].split())
+  with patch.object(g,'token_request',return_value={'access_token':'access-new','scope':g.SCOPES['calendar'],'expires_in':3600}):
+   with self.assertRaisesRegex(g.GoogleError,'não confirmou a identidade'):
+    g.callback(temporary,'state='+query['state'][0]+'&code=example')
  def test_missing_scope_not_saved(self):
   first=self.authorize('', ['login','sync'],['openid',g.SCOPES['sync']])
   with self.assertRaises(g.GoogleError) as err:g.save_services(first,['login','sync','calendar'])
