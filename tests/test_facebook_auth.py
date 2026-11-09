@@ -5,9 +5,10 @@ from urllib.parse import urlsplit, parse_qs
 import bblia_facebook_auth as fb
 
 ENV = {
+    "BBLIA_ISOLATED_GOOGLE_ORIGIN": "https://example.test",
     "BBLIA_FACEBOOK_APP_ID": "12345",
     "BBLIA_FACEBOOK_APP_SECRET": "test-secret",
-    "BBLIA_FACEBOOK_REDIRECT_URI": "https://example.test/facebook-callback",
+    "BBLIA_FACEBOOK_REDIRECT_URI": "https://example.test/auth/facebook/callback",
 }
 
 class FacebookAuthTests(unittest.TestCase):
@@ -51,6 +52,17 @@ class FacebookAuthTests(unittest.TestCase):
             return {"access_token": "token"} if "oauth/access_token" in url else {"id": "<script>"}
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "code", now=101, request_json=fake)
+
+    def test_refuses_existing_service_redirect(self):
+        with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://bblia-stage6-validacao.onrender.com/auth/facebook/callback",
+                                     "BBLIA_ISOLATED_GOOGLE_ORIGIN": "https://bblia-stage6-validacao.onrender.com"}):
+            with self.assertRaises(fb.FacebookAuthError):
+                fb.start(now=100)
+
+    def test_refuses_mismatched_origin(self):
+        with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://other.example/auth/facebook/callback"}):
+            with self.assertRaises(fb.FacebookAuthError):
+                fb.start(now=100)
 
     def test_unconfigured_rejected(self):
         with patch.dict(os.environ, {"BBLIA_FACEBOOK_APP_SECRET": ""}):
