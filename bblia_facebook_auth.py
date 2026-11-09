@@ -8,7 +8,7 @@ import os
 import secrets
 import threading
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 AUTH_URL = "https://www.facebook.com/v21.0/dialog/oauth"
@@ -25,7 +25,13 @@ def configuration():
     app_id = os.environ.get("BBLIA_FACEBOOK_APP_ID", "").strip()
     secret = os.environ.get("BBLIA_FACEBOOK_APP_SECRET", "").strip()
     redirect = os.environ.get("BBLIA_FACEBOOK_REDIRECT_URI", "").strip()
-    if not app_id or not secret or not redirect.startswith("https://"):
+    uri = urlsplit(redirect)
+    allowed = urlsplit(os.environ.get("BBLIA_ISOLATED_GOOGLE_ORIGIN", "").strip())
+    if (not app_id or not secret or uri.scheme != "https"
+        or uri.path != "/auth/facebook/callback" or uri.query or uri.fragment
+        or not uri.netloc or allowed.scheme != "https"
+        or uri.netloc.lower() != allowed.netloc.lower()
+        or uri.hostname in ("bblia-stage6-validacao.onrender.com", "bblia-teste.onrender.com")):
         raise FacebookAuthError("Login Facebook ainda não configurado.")
     return app_id, secret, redirect
 
