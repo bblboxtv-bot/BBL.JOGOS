@@ -414,21 +414,15 @@ function realtimeTranscript(event,role,final){
  entry.text=text;entry.bubble.textContent=text;
  if(final&&!entry.saved){
   const next=Array.from(realtimeTranscripts.values()).filter(e=>e.saved&&e.order>entry.order).sort((a,b)=>a.order-b.order)[0];
-  // Realtime transcription may arrive after the assistant has already spoken.
-  // Keep the latest user turn above its answer even when the provider emits
-  // the user's transcript completion late or assigns its item order late.
-  // Only move a delayed user transcript ahead of the assistant message
-  // belonging to this turn. Never move it ahead of an older answer.
-  const lateUserAnswer=role==='user'&&!next
-   ?Array.from(realtimeTranscripts.values()).filter(e=>
-      e.saved&&e.message?.role==='assistant'&&e.bubble.parentNode===feed&&
-      e.order>=entry.order).sort((a,b)=>a.order-b.order)[0]
-   :null;
-  const insertion=next||lateUserAnswer;
+  // Provider events may arrive out of order. Use the item order to insert
+  // finalized turns without moving a new question ahead of an older answer.
   entry.saved=true;entry.message={role,content:text};
-  if(insertion&&history.includes(insertion.message)){
-   history.splice(history.indexOf(insertion.message),0,entry.message);
-   if(insertion.bubble.parentNode===feed)feed.insertBefore(entry.bubble,insertion.bubble);
+  const later=Array.from(realtimeTranscripts.values())
+   .filter(e=>e!==entry&&e.saved&&e.order>entry.order&&history.includes(e.message))
+   .sort((a,b)=>a.order-b.order)[0];
+  if(later){
+   history.splice(history.indexOf(later.message),0,entry.message);
+   if(later.bubble.parentNode===feed)feed.insertBefore(entry.bubble,later.bubble);
   }else history.push(entry.message);
   saveChat();
  }
