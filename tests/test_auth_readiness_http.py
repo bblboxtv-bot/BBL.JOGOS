@@ -82,5 +82,13 @@ class ReadinessHttpTests(unittest.TestCase):
                         urlopen(request,timeout=4)
                     self.assertEqual(raised.exception.code,503)
 
+    def test_facebook_readiness_uses_actual_configuration(self):
+        values={"BBLIA_FACEBOOK_APP_ID":"123456789","BBLIA_FACEBOOK_APP_SECRET":"test-only-secret","BBLIA_FACEBOOK_REDIRECT_URI":"https://isolated.example/auth/facebook/callback","FACEBOOK_APP_ID":"","FACEBOOK_APP_SECRET":""}
+        with patch.dict(os.environ,values):
+            url="http://127.0.0.1:%d/api/auth/readiness"%self.server.server_port
+            with urlopen(url,timeout=4) as response:
+                result=json.load(response)
+            self.assertTrue(result["facebook"])
+
 if __name__=="__main__":
     unittest.main()
