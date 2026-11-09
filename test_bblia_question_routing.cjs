@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync(process.argv[2],'utf8');
-const start=source.indexOf('if(/\\b(?:clima|previsão|previsao|temperatura|chuva|meteorologia)');
+const start=source.indexOf('if(/\\b(?:clima|previsão|previsao|temperatura|chuva|chover|meteorologia)');
 assert(start>=0,'weather intent must be present');
 const end=source.indexOf('.test(text))',start);
 assert(end>start,'weather intent must be testable');
