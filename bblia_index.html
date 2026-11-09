@@ -181,6 +181,14 @@ prompt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.prevent
  .work-mode .mic-main,.media-visible .mic-main{width:48px;height:48px;font-size:24px}
  .work-mode .mic-title,.media-visible .mic-title{font-size:17px}
  .composer,.work-mode .composer{flex:none;flex-wrap:nowrap;gap:4px;padding:8px 6px}
+ /* Keep the text field reachable while the mobile virtual keyboard is open. */
+ body.bblia-keyboard-open header{height:54px;min-height:54px}
+ body.bblia-keyboard-open .approved-logo{width:46px;height:46px}
+ body.bblia-keyboard-open .stage,
+ body.bblia-keyboard-open .work-mode .stage{display:none}
+ body.bblia-keyboard-open .composer{position:relative;z-index:2}
+ body.bblia-keyboard-open #prompt{pointer-events:auto;touch-action:manipulation}
+
  .composer textarea,.work-mode .composer textarea{flex:1 1 0%;width:0;min-height:48px;max-height:96px;font-size:16px;padding:10px 8px;border-radius:14px}
  .composer button{flex:0 0 34px;min-width:34px;width:34px;height:46px;font-size:19px}
  .composer .send{flex-basis:40px;min-width:40px;width:40px;height:46px}
@@ -202,8 +210,16 @@ prompt.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.prevent
 </style><script>
 (function(){
  function fitViewport(){document.documentElement.style.setProperty('--bblia-viewport',Math.round(window.visualViewport?.height||window.innerHeight)+'px')}
- fitViewport();window.addEventListener('resize',fitViewport);
- if(window.visualViewport)window.visualViewport.addEventListener('resize',fitViewport);
+ const promptField=document.getElementById('prompt');
+ function updateKeyboardLayout(){
+  const viewport=window.visualViewport;
+  const keyboardVisible=!!viewport&&viewport.height<window.innerHeight-120;
+  document.body.classList.toggle('bblia-keyboard-open',document.activeElement===promptField&&keyboardVisible);
+ }
+ function refreshViewport(){fitViewport();updateKeyboardLayout()}
+ fitViewport();window.addEventListener('resize',refreshViewport);
+ if(window.visualViewport)window.visualViewport.addEventListener('resize',refreshViewport);
+ if(promptField){promptField.addEventListener('focus',refreshViewport);promptField.addEventListener('blur',()=>document.body.classList.remove('bblia-keyboard-open'))}
 })();
 </script></body></html>
 
