@@ -152,7 +152,7 @@ async function googleCall(path,data){
 async function showGoogleConnections(){
  const el=modalContent('E-mail, agenda e Drive','Conecte sua conta Google para consultar seus dados na BBLIA.');
  try{
-  const s=await googleCall('status');const info=document.createElement('p');info.textContent=s.connected?'Conta conectada neste navegador.':s.detail;el.append(info);
+  const s=await googleCall('status');if(s.authenticated&&!s.connected){const warning=document.createElement('p');warning.setAttribute('role','status');warning.textContent='Você entrou com e-mail e senha. Conectar o Google agora pode abrir outro espaço de conta. Exporte um backup e saia antes de entrar com Google; a vinculação segura das duas formas de login ainda não está disponível.';warning.style.cssText='padding:12px;border:1px solid #f0b45e;border-radius:10px;color:#ffdc88';el.append(warning)}const info=document.createElement('p');info.textContent=s.connected?'Conta conectada neste navegador.':s.detail;el.append(info);
   const note=document.createElement('p');note.textContent=s.session_note;el.append(note);
   const choices=[];for(const [key,name] of [['email','Gmail'],['calendar','Agenda Google'],['drive','Google Drive'],['login','Login da BBLIA'],['sync','Histórico e projetos na nuvem']]){
    const label=document.createElement('label');label.style.display='block';const input=document.createElement('input');input.type='checkbox';input.checked=s.services.includes(key)||key==='login'||key==='sync';if(key==='login'||key==='sync'){input.disabled=true;input.title='Obrigatório para manter a conta e a sincronização da BBLIA'}label.append(input,document.createTextNode(' '+name));el.append(label);choices.push([key,input]);
@@ -167,7 +167,7 @@ async function showGoogleConnections(){
     try{
      const selected=choices.filter(x=>x[1].checked).map(x=>x[0]);
      if(!selected.length)throw Error('Escolha pelo menos um serviço.');
-     if(!s.connected){const result=await googleCall('start',{services:selected});location.assign(result.url);return}
+     if(!s.connected){if(s.authenticated){throw Error('Para proteger seus dados, saia da conta por senha e entre com Google. A vinculação das duas contas ainda não foi implementada.')}const result=await googleCall('start',{services:selected});location.assign(result.url);return}
      let result;
      try{result=await googleCall('save',{services:selected})}
      catch(error){
