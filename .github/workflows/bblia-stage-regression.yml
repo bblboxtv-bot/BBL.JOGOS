@@ -1,0 +1,27 @@
+name: BBLIA staging regressions
+on:
+  push:
+    branches: [bblia-fix-voice-order-20261109]
+  workflow_dispatch:
+jobs:
+  staging-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python syntax
+        run: python -m py_compile bblia_google.py bblia_app.py
+      - name: Google incremental consent regression
+        run: python -m unittest -v test_bblia_google_incremental
+      - name: Existing Google tests
+        run: python -m unittest -v test_bblia_google
+      - name: Voice JavaScript syntax and ordering
+        run: |
+          node --check bblia_voice.js
+          node test_bblia_voice_order.cjs bblia_voice.js
