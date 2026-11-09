@@ -57,7 +57,9 @@ def verify_code(phone, code, *, now=None, secret=None):
     phone = normalize_phone(phone)
     now = time.time() if now is None else now
     secret = secret or os.environ.get("BBLIA_OTP_SECRET", "")
-    if len(secret) < 32:\n        raise PhoneAuthError("Serviço de verificação não configurado.")\n    if not isinstance(code, str) or not re.fullmatch(r"[0-9]{6}", code):
+    if len(secret) < 32:
+        raise PhoneAuthError("Serviço de verificação não configurado.")
+    if not isinstance(code, str) or not re.fullmatch(r"[0-9]{6}", code):
         raise PhoneAuthError("Código inválido.")
     with LOCK:
         entry = PENDING.get(phone)
