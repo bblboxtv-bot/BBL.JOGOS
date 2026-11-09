@@ -98,13 +98,21 @@ def start(cookie, services):
         raise GoogleError('Escolha os serviços que deseja conectar.')
     sid=secrets.token_urlsafe(32); state=secrets.token_urlsafe(32); verifier=secrets.token_urlsafe(48)
     challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+    # Incremental consent must preserve the current account and selected services.
+    # Otherwise an OAuth round-trip replaces the session and loses login/sync state.
+    previous=session(cookie)
+    requested=list(dict.fromkeys([SCOPES[k] for k in services]+(['email','profile'] if 'login' in services else [])))
+    pending={'expires':time.time()+600,'state':state,'verifier':verifier,'requested':requested}
+    if previous and previous.get('user'):
+        pending['previous_user']=previous['user']
+        pending['previous_selected_services']=previous.get('selected_services',[])
+        pending['previous_scopes']=previous.get('scopes',[])
+        pending['previous_refresh']=previous.get('refresh','')
     with LOCK:
         for old in list(SESSIONS):
             if SESSIONS[old]['expires']<=time.time():SESSIONS.pop(old,None)
         if len(SESSIONS)>=1000:raise GoogleError('Conexões ocupadas. Tente novamente em instantes.',429)
-        SESSIONS[sid]={'expires':time.time()+600,'state':state,'verifier':verifier,
-                       'requested':[SCOPES[k] for k in dict.fromkeys(services)]}
-    if 'login' in services:SESSIONS[sid]['requested']+=['email','profile']
+        SESSIONS[sid]=pending
     params={'client_id':client,'redirect_uri':redirect,'response_type':'code','scope':' '.join(SESSIONS[sid]['requested']),
             'state':state,'code_challenge':challenge,'code_challenge_method':'S256',
             'access_type':'offline','prompt':'consent select_account'}
@@ -157,8 +165,14 @@ def callback(cookie, query):
             raise GoogleError('O Google não confirmou a identidade da conta.',403)
         s['user']={'id':profile['sub'],'email':str(profile.get('email',''))[:250],'name':str(profile.get('name',''))[:150]}
 
+    if s.get('previous_user'):
+        if s.get('user') and s['user']['id']!=s['previous_user']['id']:
+            raise GoogleError('A autorização pertence a outra conta Google. Use a mesma conta.',403)
+        if not s.get('user'):s['user']=s['previous_user']
+        s['selected_services']=s.get('previous_selected_services',[])
+        granted=list(dict.fromkeys(s.get('previous_scopes',[])+granted))
     if not any(v in granted for v in SCOPES.values()):raise GoogleError('Nenhum dos serviços solicitados foi autorizado.',403)
-    s.update(token=result['access_token'],refresh=result.get('refresh_token',''),scopes=granted,
+    s.update(token=result['access_token'],refresh=result.get('refresh_token') or s.get('previous_refresh',''),scopes=granted,
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
     old=_sid_from_cookie(cookie);new=secrets.token_urlsafe(32)
     with LOCK:
