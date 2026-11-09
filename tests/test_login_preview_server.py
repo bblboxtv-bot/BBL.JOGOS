@@ -4,7 +4,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 from unittest.mock import patch
 import bblia_login_preview_server as preview
@@ -166,10 +166,14 @@ class PreviewServerTests(unittest.TestCase):
         self.assertNotIn("Set-Cookie", headers)
 
     def test_google_verified_callback_creates_session(self):
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
         with patch.object(preview.google_bridge, "complete", return_value="google:verified-test-subject"):
-            code, body, headers = self.fetch("/auth/google/callback?state=approved")
-        self.assertEqual(code, 303)
-        self.assertIn("__Host-bblia_session=", headers.get("Set-Cookie", ""))
+            with self.assertRaises(HTTPError) as caught:
+                build_opener(NoRedirect).open(self.base + "/auth/google/callback?state=approved", timeout=5)
+        self.assertEqual(caught.exception.code, 303)
+        self.assertIn("__Host-bblia_session=", caught.exception.headers.get("Set-Cookie", ""))
 
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
