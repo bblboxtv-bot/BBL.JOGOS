@@ -155,7 +155,7 @@ async function showGoogleConnections(){
   const s=await googleCall('status');const info=document.createElement('p');info.textContent=s.connected?'Conta conectada neste navegador.':s.detail;el.append(info);
   const note=document.createElement('p');note.textContent=s.session_note;el.append(note);
   const choices=[];for(const [key,name] of [['email','Gmail'],['calendar','Agenda Google'],['drive','Google Drive'],['login','Login da BBLIA'],['sync','Histórico e projetos na nuvem']]){
-   const label=document.createElement('label');label.style.display='block';const input=document.createElement('input');input.type='checkbox';input.checked=s.services.includes(key);label.append(input,document.createTextNode(' '+name));el.append(label);choices.push([key,input]);
+   const label=document.createElement('label');label.style.display='block';const input=document.createElement('input');input.type='checkbox';input.checked=s.services.includes(key)||key==='login'||key==='sync';if(key==='login'||key==='sync'){input.disabled=true;input.title='Obrigatório para manter a conta e a sincronização da BBLIA'}label.append(input,document.createTextNode(' '+name));el.append(label);choices.push([key,input]);
   }
   const saveNote=document.createElement('p');saveNote.textContent='Marque os serviços e toque em Salvar. As permissões já autorizadas serão salvas sem abrir o Google novamente.';el.append(saveNote);
   const detail=document.createElement('p');detail.textContent='Gmail, Agenda e Drive são acessados somente com as permissões concedidas. Login e sincronização mantêm o espaço privado da BBLIA.';el.append(detail);
