@@ -29,3 +29,4 @@ jobs:
         run: |
           node --check bblia_voice.js
           node test_bblia_voice_order.cjs bblia_voice.js
+          node test_bblia_question_routing.cjs bblia_index.html
