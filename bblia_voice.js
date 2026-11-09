@@ -414,9 +414,19 @@ function realtimeTranscript(event,role,final){
  entry.text=text;entry.bubble.textContent=text;
  if(final&&!entry.saved){
   const next=Array.from(realtimeTranscripts.values()).filter(e=>e.saved&&e.order>entry.order).sort((a,b)=>a.order-b.order)[0];
+  // Realtime transcription may arrive after the assistant has already spoken.
+  // Keep the latest user turn above its answer even when the provider emits
+  // the user's transcript completion late or assigns its item order late.
+  const lateUserAnswer=role==='user'&&!next
+   ?Array.from(realtimeTranscripts.values()).reverse().find(e=>e.saved&&e.message?.role==='assistant'&&e.bubble.parentNode===feed)
+   :null;
+  const insertion=next||lateUserAnswer;
   entry.saved=true;entry.message={role,content:text};
-  if(next&&history.includes(next.message)){history.splice(history.indexOf(next.message),0,entry.message);if(next.bubble.parentNode===feed)feed.insertBefore(entry.bubble,next.bubble)}
-  else history.push(entry.message);saveChat();
+  if(insertion&&history.includes(insertion.message)){
+   history.splice(history.indexOf(insertion.message),0,entry.message);
+   if(insertion.bubble.parentNode===feed)feed.insertBefore(entry.bubble,insertion.bubble);
+  }else history.push(entry.message);
+  saveChat();
  }
  else if(final&&entry.message){entry.message.content=text;saveChat()}
 }
