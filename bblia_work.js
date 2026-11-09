@@ -314,7 +314,11 @@ async function bbliaMenuLogout(){
   await saveChat();
   if(cloudUser&&cloudGeneration!==cloudSavedGeneration){
    await cloudSync(true);
-   if(cloudGeneration!==cloudSavedGeneration)return notify('Sincronização pendente. Faça backup antes de sair.');
+   if(cloudGeneration!==cloudSavedGeneration){
+    const backup=JSON.stringify(workspace,null,2);
+    downloadText('BBLIA-backup-antes-de-sair.json',backup,'application/json');
+    if(!window.confirm('A sincronização não terminou. Um backup foi preparado para download. Deseja sair mesmo assim? Alterações não sincronizadas podem não aparecer em outros aparelhos.'))return;
+   }
   }
   await accountRequest('/api/account/logout',{});
   await cloudLeave();
