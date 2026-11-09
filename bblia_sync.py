@@ -1,7 +1,7 @@
 """Per-account workspaces in Drive appDataFolder; one snapshot per browser.
 No database on ephemeral Render disk; no credentials in snapshots.
 """
-import json, re, copy, hashlib, threading, time
+import json, re, copy, hashlib, threading, time, math
 from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -48,7 +48,7 @@ def validate(value):
 
 
 def stamp(value):
-    return value if isinstance(value,(int,float)) and 0<=value<=10**14 else 0
+    return value if type(value) in (int,float) and math.isfinite(value) and 0<=value<=10**14 else 0
 
 
 def signature(item):
