@@ -15,4 +15,6 @@ function run(events,expected){
 run([{id:'u1',role:'user',text:'pergunta',order:0},{id:'a1',role:'assistant',text:'resposta',order:1}],['user:pergunta','assistant:resposta']);
 run([{id:'a1',role:'assistant',text:'resposta',order:1},{id:'u1',role:'user',text:'pergunta',order:0}],['user:pergunta','assistant:resposta']);
 run([{id:'u1',role:'user',text:'primeira',order:0},{id:'a1',role:'assistant',text:'resposta 1',order:1},{id:'u2',role:'user',text:'segunda',order:2},{id:'a2',role:'assistant',text:'resposta 2',order:3}],['user:primeira','assistant:resposta 1','user:segunda','assistant:resposta 2']);
-console.log('VOICE_ORDER_TESTS_PASS 3/3');
+run([{id:'a1',role:'assistant',text:'resposta 1',order:1},{id:'a2',role:'assistant',text:'resposta 2',order:3},{id:'u2',role:'user',text:'segunda',order:2},{id:'u1',role:'user',text:'primeira',order:0}],['user:primeira','assistant:resposta 1','user:segunda','assistant:resposta 2']);
+run([{id:'u2',role:'user',text:'segunda',order:2},{id:'a2',role:'assistant',text:'resposta 2',order:3},{id:'a1',role:'assistant',text:'resposta 1',order:1},{id:'u1',role:'user',text:'primeira',order:0}],['user:primeira','assistant:resposta 1','user:segunda','assistant:resposta 2']);
+console.log('VOICE_ORDER_TESTS_PASS 5/5');
