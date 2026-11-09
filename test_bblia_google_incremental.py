@@ -10,8 +10,10 @@ class IncrementalConsentTests(unittest.TestCase):
   self.env.start()
   self.durable=patch.object(g.durable,'enabled',return_value=False)
   self.durable.start()
+  self.save=patch.object(g.durable,'save',return_value=None);self.save.start()
+  self.delete=patch.object(g.durable,'delete',return_value=None);self.delete.start()
  def tearDown(self):
-  self.durable.stop();self.env.stop();g.SESSIONS.clear()
+  self.delete.stop();self.save.stop();self.durable.stop();self.env.stop();g.SESSIONS.clear()
  def authorize(self,cookie,services,scopes,identity='google-user-1',refresh=''):
   result,temporary=g.start(cookie,services)
   query=parse_qs(urlsplit(result['url']).query)
