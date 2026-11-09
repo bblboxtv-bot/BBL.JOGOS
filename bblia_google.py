@@ -170,7 +170,7 @@ def callback(cookie, query):
             raise GoogleError('A autorização pertence a outra conta Google. Use a mesma conta.',403)
         if not s.get('user'):s['user']=s['previous_user']
         s['selected_services']=s.get('previous_selected_services',[])
-        granted=list(dict.fromkeys(s.get('previous_scopes',[])+granted))
+        # Trust only scopes returned with the new token; old grants may be revoked.
     if not any(v in granted for v in SCOPES.values()):raise GoogleError('Nenhum dos serviços solicitados foi autorizado.',403)
     s.update(token=result['access_token'],refresh=result.get('refresh_token') or s.get('previous_refresh',''),scopes=granted,
              token_expires=time.time()+int(result.get('expires_in',3600))-60,expires=time.time()+TTL)
