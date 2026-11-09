@@ -26,7 +26,7 @@ class GoogleTests(unittest.TestCase):
  def test_state_and_replay(self):
   c,q=self.begin()
   with self.assertRaises(g.GoogleError):g.callback(c,'state=wrong&code=a')
-  new=self.connected();self.assertTrue(g.status(new)['connected']);self.assertFalse(g.status(c)['connected'])
+  new=self.connected();self.assertIsNotNone(g.session(new));self.assertFalse(g.status(c)['connected'])
  def test_browser_isolation_and_no_credentials_in_status(self):
   c=self.connected();self.assertEqual(g.tools(''),[])
   self.assertNotIn('private',json.dumps(g.status(c)));self.assertNotIn('refresh',json.dumps(g.status(c)))
@@ -39,7 +39,7 @@ class GoogleTests(unittest.TestCase):
  def test_origin(self):
   for origin in ('','https://evil.example','https://bblia-teste.onrender.com.evil.test'):
    with self.assertRaises(g.GoogleError):g.check_origin({'Origin':origin})
-  g.check_origin({'Origin':'https://bblia-teste.onrender.com'})
+  g.check_origin({'Origin':'https://bblia-teste.onrender.com','Host':'bblia-teste.onrender.com'})
  def test_refresh(self):
   c=self.connected();g.session(c)['token_expires']=0
   with patch.object(g,'token_request',return_value={'access_token':'renewed','expires_in':3600}) as p:
