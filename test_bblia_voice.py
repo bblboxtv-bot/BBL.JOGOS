@@ -10,6 +10,8 @@ from bblia_app import Handler, ThreadingHTTPServer
 
 class VoiceSessionTests(unittest.TestCase):
     def test_quiet_turn_detection_and_no_automatic_interruption(self):
+        account_patch=patch.object(Handler,'require_account',return_value=True)
+        account_patch.start()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         threading.Thread(target=server.serve_forever,daemon=True).start()
         original=urllib.request.urlopen
@@ -32,7 +34,7 @@ class VoiceSessionTests(unittest.TestCase):
             self.assertEqual(audio['noise_reduction']['type'],'near_field')
             self.assertNotIn('idle_timeout_ms',audio['turn_detection'])
         finally:
-            server.shutdown();server.server_close()
+            server.shutdown();server.server_close();account_patch.stop()
 
 
 if __name__=='__main__':unittest.main()
