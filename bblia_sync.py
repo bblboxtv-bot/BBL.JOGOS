@@ -16,7 +16,7 @@ def empty():
 
 
 def validate(value):
-    if not isinstance(value,dict) or value.get('version')!=1:raise google.GoogleError('Formato de histórico inválido.')
+    if not isinstance(value,dict) or type(value.get('version')) is not int or value['version']!=1:raise google.GoogleError('Formato de histórico inválido.')
     result=empty()
     for key,maximum in [('chats',2000),('projects',200)]:
         items=value.get(key)
