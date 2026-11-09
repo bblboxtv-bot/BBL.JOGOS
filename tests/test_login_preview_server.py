@@ -117,6 +117,26 @@ class PreviewServerTests(unittest.TestCase):
         self.assertNotIn("Set-Cookie", headers)
         self.assertIn("Google", json.loads(body)["error"])
 
+    def test_session_survives_server_reinitialization_and_logout(self):
+        with patch.object(preview.phone, "verify_code", return_value={"verified": True, "subject": "phone:+5521977776666"}):
+            code, _, headers = self.fetch("/api/auth/phone/verify", {"phone": "+5521977776666", "code": "123456"})
+        self.assertEqual(code, 200)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        # Reinitialize the same durable DB, equivalent to opening it in a new worker.
+        sessions.initialize(self.db)
+        req = Request(self.base + "/api/auth/status", headers={"Cookie": cookie})
+        with urlopen(req, timeout=5) as response:
+            data = json.load(response)
+        self.assertTrue(data["authenticated"])
+        self.assertEqual(data["provider"], "phone")
+        req = Request(self.base + "/api/auth/logout", data=b"{}", headers={"Cookie": cookie, "Content-Type": "application/json"})
+        with urlopen(req, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        sessions.initialize(self.db)
+        req = Request(self.base + "/api/auth/status", headers={"Cookie": cookie})
+        with urlopen(req, timeout=5) as response:
+            self.assertFalse(json.load(response)["authenticated"])
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
