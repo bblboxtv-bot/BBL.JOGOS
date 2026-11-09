@@ -192,7 +192,7 @@ class PreviewServerTests(unittest.TestCase):
             with urlopen(req, timeout=5) as response:
                 return json.loads(response.read())
         self.assertTrue(send("/api/auth/status")["authenticated"])
-        self.assertTrue(send("/api/auth/logout", {})["ok"])
+        self.assertFalse(send("/api/auth/logout", {})["authenticated"])
         self.assertFalse(send("/api/auth/status")["authenticated"])
 
     def test_unknown_route(self):
