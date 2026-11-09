@@ -24,7 +24,7 @@ jobs:
       - name: Existing Google tests
         run: python -m unittest -v test_bblia_google
       - name: Speech recognition and voice backend regressions
-        run: python -m unittest -v test_bblia_speech test_realtime_config
+        run: python -m unittest -v test_bblia_speech test_bblia_voice test_realtime_config
       - name: Voice JavaScript syntax and ordering
         run: |
           node --check bblia_voice.js
