@@ -7,7 +7,14 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 from urllib.request import urlopen
-import bblia_auth_integrated_test_server as app
+from unittest.mock import patch as mock_patch
+_original_read_text = Path.read_text
+def _read_text(path, *args, **kwargs):
+    if path.name == 'bblia_login_logo_base64.txt':
+        return 'UklGRgQAAABXRUJQ'
+    return _original_read_text(path, *args, **kwargs)
+with mock_patch.object(Path, 'read_text', _read_text):
+    import bblia_auth_integrated_test_server as app
 import bblia_session_sqlite as store
 
 class ReadinessHttpTests(unittest.TestCase):
