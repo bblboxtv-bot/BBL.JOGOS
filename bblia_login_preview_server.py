@@ -5,9 +5,11 @@ fail closed until credentials, verified callbacks and SMS transport are wired.
 """
 import json
 import os
+import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
+from http.cookies import SimpleCookie
 import bblia_auth_http_stage as auth
 import bblia_session_sqlite as sessions
 import bblia_facebook_auth as facebook
@@ -39,6 +41,31 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(HTML)))
             self.end_headers()
             self.wfile.write(HTML)
+        elif path == "/auth/facebook/callback":
+            query = parse_qs(urlsplit(self.path).query)
+            state = query.get("state", [""])[0]
+            code = query.get("code", [""])[0]
+            jar = SimpleCookie()
+            try:
+                jar.load(self.headers.get("Cookie", ""))
+                expected = jar.get("__Host-bblia_fb_state")
+                valid = expected and secrets.compare_digest(expected.value, state)
+            except Exception:
+                valid = False
+            if not valid:
+                return self.reply(403, {"error": "Estado de autorização inválido."})
+            try:
+                verified = facebook.callback(state, code)
+                _, session_cookie = auth.login_verified(str(DB), "facebook", verified["subject"])
+            except (facebook.FacebookAuthError, ValueError):
+                return self.reply(401, {"error": "Não foi possível confirmar a conta Facebook."})
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", session_cookie)
+            self.send_header("Set-Cookie", "__Host-bblia_fb_state=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif path == "/api/auth/status":
             self.reply(200, auth.status(str(DB), self.headers.get("Cookie", "")))
         else:
@@ -67,7 +94,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/facebook/start":
             try:
                 result = facebook.start()
-                return self.reply(200, {"url": result["url"]})
+                body = json.dumps({"url": result["url"]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Set-Cookie", "__Host-bblia_fb_state=" + result["state"] + "; Path=/; Max-Age=600; Secure; HttpOnly; SameSite=Lax")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             except facebook.FacebookAuthError:
                 return self.reply(503, {"error": "Facebook ainda não configurado neste teste."})
         if path in ("/api/auth/phone/request", "/api/auth/phone/verify"):
