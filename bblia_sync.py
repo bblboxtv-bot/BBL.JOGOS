@@ -1,7 +1,7 @@
 """Per-account workspaces in Drive appDataFolder; one snapshot per browser.
 No database on ephemeral Render disk; no credentials in snapshots.
 """
-import json, re, copy, hashlib, threading, time
+import json, re, copy, hashlib, threading, time, math
 from urllib.parse import urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -16,7 +16,7 @@ def empty():
 
 
 def validate(value):
-    if not isinstance(value,dict) or value.get('version')!=1:raise google.GoogleError('Formato de histórico inválido.')
+    if not isinstance(value,dict) or type(value.get('version')) is not int or value['version']!=1:raise google.GoogleError('Formato de histórico inválido.')
     result=empty()
     for key,maximum in [('chats',2000),('projects',200)]:
         items=value.get(key)
@@ -48,7 +48,7 @@ def validate(value):
 
 
 def stamp(value):
-    return value if isinstance(value,(int,float)) and 0<=value<=10**14 else 0
+    return value if type(value) in (int,float) and math.isfinite(value) and 0<=value<=10**14 else 0
 
 
 def signature(item):
@@ -60,7 +60,10 @@ def merge(states):
     for raw in states:
         s=validate(raw)
         for key,value in s['deleted'].items():result['deleted'][key]=max(result['deleted'].get(key,0),value)
-        if s['preferencesUpdated']>=result['preferencesUpdated']:
+        if (s['preferencesUpdated']>result['preferencesUpdated'] or
+            (s['preferencesUpdated']==result['preferencesUpdated'] and
+             (bool(s['preferences']),signature(s['preferences']))>
+             (bool(result['preferences']),signature(result['preferences'])))):
             result['preferences']=s['preferences'];result['preferencesUpdated']=s['preferencesUpdated']
         for kind in groups:
             for item in s[kind]:
@@ -133,6 +136,7 @@ def load(cookie):
 
 
 def save(cookie,payload):
+    if not isinstance(payload,dict):raise google.GoogleError('Pedido de sincronização inválido.')
     user=identity(cookie,payload.get('account'))
     device=payload.get('device','')
     if not isinstance(device,str) or not PATTERN.fullmatch(device):raise google.GoogleError('Identificador de aparelho inválido.')
