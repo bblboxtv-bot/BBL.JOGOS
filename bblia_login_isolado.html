@@ -19,16 +19,18 @@ async function refreshSession(){
   for(const id of ['google','facebook','phone'])$(id).hidden=!!status.authenticated;
   $('phone-fields').classList.remove('open');
   $('phone').setAttribute('aria-expanded','false');
- }catch(err){notice(err.message)}
+  return status;
+ }catch(err){notice(err.message);throw err;}
 }
 $('logout').addEventListener('click',async()=>{
  try{
   await request('/api/auth/logout',{});
-  await refreshSession();
+  const status=await refreshSession();
+  if(status.authenticated)throw Error('Não foi possível confirmar a saída da conta.');
   notice('Você saiu da conta.');
  }catch(err){notice(err.message)}
 });
-document.addEventListener('DOMContentLoaded',refreshSession);
+document.addEventListener('DOMContentLoaded',()=>{refreshSession().catch(()=>{});});
 function notice(message){$('message').textContent=message}
 async function request(path,body){
  const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
