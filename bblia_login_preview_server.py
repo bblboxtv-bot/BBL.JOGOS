@@ -13,6 +13,7 @@ from http.cookies import SimpleCookie
 import bblia_auth_http_stage as auth
 import bblia_session_sqlite as sessions
 import bblia_facebook_auth as facebook
+import bblia_phone_auth as phone
 
 BASE = Path(__file__).resolve().parent
 HTML = (BASE / "bblia_login_isolado.html").read_bytes()
@@ -105,8 +106,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             except facebook.FacebookAuthError:
                 return self.reply(503, {"error": "Facebook ainda não configurado neste teste."})
-        if path in ("/api/auth/phone/request", "/api/auth/phone/verify"):
+        if path == "/api/auth/phone/request":
             return self.reply(503, {"error": "SMS ainda não configurado neste teste."})
+        if path == "/api/auth/phone/verify":
+            try:
+                verified = phone.verify_code(data.get("phone"), data.get("code"))
+                result, cookie = auth.login_verified(str(DB), "phone", verified["subject"])
+                return self.reply(200, result, cookie)
+            except phone.PhoneAuthError:
+                return self.reply(401, {"error": "Código inválido ou expirado."})
         if path == "/api/account/start":
             return self.reply(503, {"error": "Google será conectado ao servidor de testes após validação do fluxo."})
         return self.reply(404, {"error": "Não encontrado."})
