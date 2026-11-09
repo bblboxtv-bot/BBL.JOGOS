@@ -101,7 +101,10 @@ def start(cookie, services):
     # Incremental consent must preserve the current account and selected services.
     # Otherwise an OAuth round-trip replaces the session and loses login/sync state.
     previous=session(cookie)
-    requested=list(dict.fromkeys([SCOPES[k] for k in services]+(['email','profile'] if 'login' in services else [])))
+    # A linked account must be re-identified during incremental consent.
+    # Never attach newly granted scopes to an old identity without openid.
+    identity_required=bool(previous and previous.get('user'))
+    requested=list(dict.fromkeys([SCOPES[k] for k in services]+(['openid','email','profile'] if 'login' in services or identity_required else [])))
     pending={'expires':time.time()+600,'state':state,'verifier':verifier,'requested':requested}
     if previous and previous.get('user'):
         pending['previous_user']=previous['user']
@@ -166,6 +169,8 @@ def callback(cookie, query):
         s['user']={'id':profile['sub'],'email':str(profile.get('email',''))[:250],'name':str(profile.get('name',''))[:150]}
 
     if s.get('previous_user'):
+        if not s.get('user'):
+            raise GoogleError('O Google não confirmou a identidade da conta existente. Autorize novamente.',403)
         if s.get('user') and s['user']['id']!=s['previous_user']['id']:
             raise GoogleError('A autorização pertence a outra conta Google. Use a mesma conta.',403)
         if not s.get('user'):s['user']=s['previous_user']
