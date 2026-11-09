@@ -54,9 +54,9 @@ class PreviewServerTests(unittest.TestCase):
         code,body,headers=self.fetch("/api/auth/logout",{})
         self.assertEqual(code,200)
         self.assertIn("Max-Age=0",headers.get("Set-Cookie",""))
-    def test_phone_fails_closed(self):
+    def test_phone_without_requested_otp_fails_closed(self):
         code,body,_=self.fetch("/api/auth/phone/verify",{"phone":"+5521999999999","code":"123456"})
-        self.assertEqual(code,503)
+        self.assertEqual(code,401)
     def test_facebook_without_config_fails_closed(self):
         with patch.dict("os.environ",{"BBLIA_FACEBOOK_APP_ID":"","BBLIA_FACEBOOK_APP_SECRET":"","BBLIA_FACEBOOK_REDIRECT_URI":""}):
             code,body,_=self.fetch("/api/auth/facebook/start",{})
