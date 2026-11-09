@@ -111,6 +111,12 @@ class PreviewServerTests(unittest.TestCase):
         with urlopen(req, timeout=5) as response:
             self.assertFalse(json.load(response)["authenticated"])
 
+    def test_google_start_without_isolated_configuration_fails_closed(self):
+        code, body, headers = self.fetch("/api/account/start", {})
+        self.assertEqual(code, 503)
+        self.assertNotIn("Set-Cookie", headers)
+        self.assertIn("Google", json.loads(body)["error"])
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
