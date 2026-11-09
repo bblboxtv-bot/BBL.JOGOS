@@ -14,6 +14,7 @@ import bblia_auth_http_stage as auth
 import bblia_session_sqlite as sessions
 import bblia_facebook_auth as facebook
 import bblia_phone_auth as phone
+import bblia_sms_twilio as sms
 import bblia_google_isolated_bridge as google_bridge
 
 BASE = Path(__file__).resolve().parent
@@ -133,7 +134,11 @@ class Handler(BaseHTTPRequestHandler):
             except facebook.FacebookAuthError:
                 return self.reply(503, {"error": "Facebook ainda não configurado neste teste."})
         if path == "/api/auth/phone/request":
-            return self.reply(503, {"error": "SMS ainda não configurado neste teste."})
+            try:
+                result = phone.request_code(data.get("phone"), sms.send_sms)
+                return self.reply(200, result)
+            except (phone.PhoneAuthError, sms.SmsConfigError) as exc:
+                return self.reply(503, {"error": str(exc)})
         if path == "/api/auth/phone/verify":
             try:
                 verified = phone.verify_code(data.get("phone"), data.get("code"))
