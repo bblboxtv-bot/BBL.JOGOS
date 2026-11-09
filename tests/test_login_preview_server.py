@@ -165,6 +165,12 @@ class PreviewServerTests(unittest.TestCase):
         self.assertEqual(code, 403)
         self.assertNotIn("Set-Cookie", headers)
 
+    def test_google_verified_callback_creates_session(self):
+        with patch.object(preview.google_bridge, "complete", return_value="google:verified-test-subject"):
+            code, body, headers = self.fetch("/auth/google/callback?state=approved")
+        self.assertEqual(code, 303)
+        self.assertIn("__Host-bblia_session=", headers.get("Set-Cookie", ""))
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
