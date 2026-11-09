@@ -1,7 +1,10 @@
 import os
 import unittest
-from unittest.mock import patch
-import bblia_google_isolated_bridge as bridge
+from unittest.mock import patch, MagicMock
+import sys
+# Unit-test the adapter without importing the full Google app and its dependencies.
+with patch.dict(sys.modules, {"bblia_google": MagicMock()}):
+ import bblia_google_isolated_bridge as bridge
 
 ENV = {
  "BBLIA_ISOLATED_GOOGLE_OAUTH_ENABLED":"1",
