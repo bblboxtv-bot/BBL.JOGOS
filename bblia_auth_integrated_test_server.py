@@ -98,7 +98,12 @@ class Handler(BaseHTTPRequestHandler):
                 google_ready = google_bridge.google is not None
             except google_bridge.IsolatedGoogleError:
                 pass
-            facebook_ready = bool(os.getenv("FACEBOOK_APP_ID") and os.getenv("FACEBOOK_APP_SECRET"))
+            facebook_ready = False
+            try:
+                facebook.configuration()
+                facebook_ready = True
+            except facebook.FacebookAuthError:
+                pass
             sms_ready = bool(len(os.getenv("BBLIA_OTP_SECRET", "")) >= 32 and os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN") and os.getenv("TWILIO_FROM_NUMBER"))
             self.reply(200, {"google": google_ready, "facebook": facebook_ready, "phone_sms": sms_ready,
                              "note": "Readiness is configuration only, not proof of successful real login."})
