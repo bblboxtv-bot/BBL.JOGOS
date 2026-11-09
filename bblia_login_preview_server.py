@@ -14,6 +14,7 @@ import bblia_auth_http_stage as auth
 import bblia_session_sqlite as sessions
 import bblia_facebook_auth as facebook
 import bblia_phone_auth as phone
+import bblia_google_isolated_bridge as google_bridge
 
 BASE = Path(__file__).resolve().parent
 HTML = (BASE / "bblia_login_isolado.html").read_bytes()
@@ -64,6 +65,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", session_cookie)
             self.send_header("Set-Cookie", "__Host-bblia_fb_state=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif path == "/auth/google/callback":
+            try:
+                subject = google_bridge.complete(self.headers.get("Cookie", ""), urlsplit(self.path).query)
+                _, session_cookie = auth.login_verified(str(DB), "google", subject)
+            except (google_bridge.IsolatedGoogleError, ValueError):
+                return self.reply(403, {"error": "Não foi possível confirmar a conta Google neste teste."})
+            except Exception:
+                return self.reply(503, {"error": "Autenticação Google temporariamente indisponível."})
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", session_cookie)
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -119,7 +134,13 @@ class Handler(BaseHTTPRequestHandler):
             except phone.PhoneAuthError:
                 return self.reply(401, {"error": "Código inválido ou expirado."})
         if path == "/api/account/start":
-            return self.reply(503, {"error": "Google será conectado ao servidor de testes após validação do fluxo."})
+            try:
+                result, cookie = google_bridge.start()
+                return self.reply(200, {"url": result["url"]}, cookie)
+            except google_bridge.IsolatedGoogleError:
+                return self.reply(503, {"error": "Google ainda não configurado neste teste isolado."})
+            except Exception:
+                return self.reply(503, {"error": "Google temporariamente indisponível."})
         return self.reply(404, {"error": "Não encontrado."})
 
 def serve(host="127.0.0.1", port=8765):
