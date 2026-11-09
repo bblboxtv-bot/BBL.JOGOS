@@ -49,7 +49,7 @@ class PhoneAuthTests(unittest.TestCase):
             auth.request_code(PHONE, broken, now=100, secret=SECRET)
         self.assertNotIn(PHONE, auth.PENDING)
 
-    def test_invalid_phone_and_missing_secret(self):
+    def test_verify_rejects_missing_secret_without_consuming_valid_code(self):\n        auth.request_code(PHONE, self.sender, now=100, secret=SECRET)\n        code = re.search(r"([0-9]{6})", self.sent[0][1]).group(1)\n        with patch.dict("os.environ", {"BBLIA_OTP_SECRET": ""}):\n            with self.assertRaisesRegex(auth.PhoneAuthError, "não configurado"):\n                auth.verify_code(PHONE, code, now=101)\n        self.assertEqual(auth.verify_code(PHONE, code, now=102, secret=SECRET)["subject"], "phone:" + PHONE)\n\n    def test_invalid_phone_and_missing_secret(self):
         with self.assertRaises(auth.PhoneAuthError):
             auth.request_code("21999999999", self.sender, now=100, secret=SECRET)
         with self.assertRaises(auth.PhoneAuthError):
