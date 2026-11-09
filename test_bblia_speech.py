@@ -91,6 +91,8 @@ class SpeechTests(unittest.TestCase):
             request.assert_not_called()
 
     def test_http_voice_works_without_openai_key_and_handles_errors(self):
+        account_patch=patch.object(Handler,'require_account',return_value=True)
+        account_patch.start()
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         threading.Thread(target=server.serve_forever,daemon=True).start()
         try:
@@ -112,6 +114,6 @@ class SpeechTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     urllib.request.urlopen(urllib.request.Request(url+'/api/'+path,data=b'[]'))
                 self.assertEqual(error.exception.code,400 if path=='voice' else 413)
-        finally:server.shutdown();server.server_close()
+        finally:server.shutdown();server.server_close();account_patch.stop()
 
 if __name__=='__main__':unittest.main()
