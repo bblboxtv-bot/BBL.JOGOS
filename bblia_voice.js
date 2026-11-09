@@ -284,7 +284,7 @@ function voiceFailure(error){
 }
 async function sendRecognizedVoice(text){
  if(!text?.trim()){waitingVoice=false;if(voiceMode)scheduleVoiceListen(400);return}
- waitingVoice=true;prompt.value=text.trim();status.textContent='Enviando sua pergunta...';
+ waitingVoice=true;prompt.value=text.trim();if(send.disabled){waitingVoice=false;status.textContent='Sua pergunta foi escrita. Aguarde a resposta anterior terminar e toque em Enviar.';return}status.textContent='Enviando sua pergunta...';
  try{await sendMessage()}finally{waitingVoice=false;if(voiceMode&&!voiceSpeaking&&document.getElementById('auto').checked)scheduleVoiceListen(450)}
 }
 async function captureVoice(){
