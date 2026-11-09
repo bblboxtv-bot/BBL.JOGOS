@@ -417,8 +417,12 @@ function realtimeTranscript(event,role,final){
   // Realtime transcription may arrive after the assistant has already spoken.
   // Keep the latest user turn above its answer even when the provider emits
   // the user's transcript completion late or assigns its item order late.
+  // Only move a delayed user transcript ahead of the assistant message
+  // belonging to this turn. Never move it ahead of an older answer.
   const lateUserAnswer=role==='user'&&!next
-   ?Array.from(realtimeTranscripts.values()).reverse().find(e=>e.saved&&e.message?.role==='assistant'&&e.bubble.parentNode===feed)
+   ?Array.from(realtimeTranscripts.values()).filter(e=>
+      e.saved&&e.message?.role==='assistant'&&e.bubble.parentNode===feed&&
+      e.order>=entry.order).sort((a,b)=>a.order-b.order)[0]
    :null;
   const insertion=next||lateUserAnswer;
   entry.saved=true;entry.message={role,content:text};
