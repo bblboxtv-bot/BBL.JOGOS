@@ -60,7 +60,10 @@ def merge(states):
     for raw in states:
         s=validate(raw)
         for key,value in s['deleted'].items():result['deleted'][key]=max(result['deleted'].get(key,0),value)
-        if s['preferencesUpdated']>=result['preferencesUpdated']:
+        if (s['preferencesUpdated']>result['preferencesUpdated'] or
+            (s['preferencesUpdated']==result['preferencesUpdated'] and
+             (bool(s['preferences']),signature(s['preferences']))>
+             (bool(result['preferences']),signature(result['preferences'])))):
             result['preferences']=s['preferences'];result['preferencesUpdated']=s['preferencesUpdated']
         for kind in groups:
             for item in s[kind]:
