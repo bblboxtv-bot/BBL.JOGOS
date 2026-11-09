@@ -21,6 +21,13 @@ class LoginScreenTests(unittest.TestCase):
         self.assertIn('/api/auth/phone/request',self.html)
         self.assertIn('/api/auth/phone/verify',self.html)
         self.assertNotIn('onclick="demo()"',self.html)
+    def test_session_and_logout_controls(self):
+        self.assertIn('id="logout"', self.html)
+        self.assertIn('/api/auth/status', self.html)
+        self.assertIn('/api/auth/logout', self.html)
+        self.assertIn('credentials:', self.html)
+        self.assertIn("refreshSession()", self.html)
+
     def test_no_secret_in_html(self):
         self.assertNotIn('BBLIA_FACEBOOK_APP_SECRET',self.html)
         self.assertNotIn('BBLIA_OTP_SECRET',self.html)
