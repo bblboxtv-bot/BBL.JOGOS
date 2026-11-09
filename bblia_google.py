@@ -55,7 +55,7 @@ def status(cookie):
     local_owner = bool(user and admin_user_id and secrets.compare_digest(str(user.get('id','')),admin_user_id))
     google_owner = bool(user and not str(user.get('id','')).startswith('email:') and user.get('email','').strip().casefold()==owner_email)
     role = ('admin' if local_owner or google_owner else 'client') if user else 'guest'
-    return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':os.getenv('BBLIA_EMAIL_REGISTRATION','disabled')=='enabled', 'connected': bool(user), 'authenticated': bool(user), 'role': role, 'user': user,
+    return {'configured': configured, 'email_login_available': True, 'email_registration_enabled':os.getenv('BBLIA_EMAIL_REGISTRATION','disabled')=='enabled', 'connected': bool(user and s and s.get('token') and not str(user.get('id','')).startswith('email:')), 'authenticated': bool(user), 'role': role, 'user': user,
             'services': [k for k,v in SCOPES.items() if s and v in s.get('scopes',[]) and k in s.get('selected_services',list(SCOPES))],
             'detail': ('Cadastro Google da BBLIA pendente: configurar cliente OAuth no servidor.' if not configured else
                        'Conexão disponível. Escolha os serviços e autorize sua conta Google.'),
