@@ -136,6 +136,7 @@ def load(cookie):
 
 
 def save(cookie,payload):
+    if not isinstance(payload,dict):raise google.GoogleError('Pedido de sincronização inválido.')
     user=identity(cookie,payload.get('account'))
     device=payload.get('device','')
     if not isinstance(device,str) or not PATTERN.fullmatch(device):raise google.GoogleError('Identificador de aparelho inválido.')
