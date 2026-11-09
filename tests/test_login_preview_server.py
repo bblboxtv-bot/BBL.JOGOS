@@ -96,6 +96,21 @@ class PreviewServerTests(unittest.TestCase):
         self.assertEqual(code, 401)
         self.assertNotIn("__Host-bblia_session=", headers.get("Set-Cookie", ""))
 
+    def test_status_after_verified_login_and_logout(self):
+        with patch.object(preview.phone, "verify_code", return_value={"verified": True, "subject": "phone:+5521988887777"}):
+            code, body, headers = self.fetch("/api/auth/phone/verify", {"phone": "+5521988887777", "code": "654321"})
+        self.assertEqual(code, 200)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        req = Request(self.base + "/api/auth/status", headers={"Cookie": cookie})
+        with urlopen(req, timeout=5) as response:
+            self.assertTrue(json.load(response)["authenticated"])
+        req = Request(self.base + "/api/auth/logout", data=b"{}", headers={"Cookie": cookie, "Content-Type": "application/json"})
+        with urlopen(req, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        req = Request(self.base + "/api/auth/status", headers={"Cookie": cookie})
+        with urlopen(req, timeout=5) as response:
+            self.assertFalse(json.load(response)["authenticated"])
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
