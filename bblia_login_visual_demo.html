@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Entrar na BBLIA — Teste isolado</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Arial,sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;background:radial-gradient(ellipse at 50% 15%,#312067,#090b20 60%,#050713);color:#fff;padding:20px}.login{width:min(420px,100%);padding:36px 26px;border:1px solid #534887;border-radius:30px;background:#10102d;box-shadow:0 20px 65px #0009;text-align:center}.mark{font-size:60px;font-weight:900;letter-spacing:3px;background:linear-gradient(#fff2b5,#d9a84e,#a56927);background-clip:text;color:transparent}.sub{color:#c7bee7;font-size:15px;line-height:1.5;margin:12px 0 30px}button{width:100%;padding:17px;border-radius:16px;border:1px solid #8e80b9;margin:7px 0;font:600 16px system-ui;cursor:pointer;background:#f6f5ff;color:#19152f}button.secondary{background:#242043;color:#fff}.phone{display:none;margin-top:14px}.phone.open{display:block}input{width:100%;padding:14px;border:1px solid #8476b6;border-radius:12px;background:#171631;color:#fff;font:inherit;margin:6px 0}#message{min-height:42px;color:#f4dca0;font-size:14px;line-height:1.5}footer{font-size:12px;color:#b6add0;margin-top:20px}
+</style></head><body><main class="login" aria-labelledby="title"><div class="mark" id="title"><img src="/logo.webp" alt="Logomarca BBLIA" style="width:132px;height:132px;object-fit:contain;display:block;margin:auto"></div><p class="sub">Sua assistente inteligente.<br>Entre para continuar suas conversas.</p>
+<button id="google" type="button">Continuar com Google</button><button id="facebook" type="button" class="secondary">Continuar com Facebook</button><button id="phone" type="button" class="secondary" aria-expanded="false" aria-controls="phone-fields">Continuar com telefone</button>
+<section class="phone" id="phone-fields"><label for="number">Número com DDI</label><input id="number" type="tel" autocomplete="tel" placeholder="+55 21 99999-9999"><button id="request" type="button">Receber código SMS</button><label for="otp">Código recebido</label><input id="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"><button id="verify" type="button">Confirmar código</button></section>
+<section id="account" hidden><p id="account-info"></p><button id="logout" type="button" class="secondary">Sair da conta</button></section><p id="message" role="status" aria-live="polite"></p><footer>Versão isolada de desenvolvimento • Nenhuma cobrança</footer></main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+async function refreshSession(){
+ try{
+  const response=await fetch('/api/auth/status',{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok)throw Error('Sessão indisponível');
+  const status=await response.json();
+  $('account').hidden=!status.authenticated;
+  $('account-info').textContent=status.authenticated?'Conectado com '+(status.provider||'conta BBLIA'):'';
+  for(const id of ['google','facebook','phone'])$(id).hidden=!!status.authenticated;
+  $('phone-fields').classList.remove('open');
+  $('phone').setAttribute('aria-expanded','false');
+  return status;
+ }catch(err){notice(err.message);throw err;}
+}
+$('logout').addEventListener('click',async()=>{
+ try{
+  await request('/api/auth/logout',{});
+  const status=await refreshSession();
+  if(status.authenticated)throw Error('Não foi possível confirmar a saída da conta.');
+  notice('Você saiu da conta.');
+ }catch(err){notice(err.message)}
+});
+document.addEventListener('DOMContentLoaded',()=>{refreshSession().catch(()=>{});});
+function notice(message){$('message').textContent=message}
+async function request(path,body){
+ const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const data=await response.json().catch(()=>({error:'Resposta inválida do servidor'}));
+ if(!response.ok)throw Error(data.error||'Serviço indisponível');
+ return data;
+}
+$('google').addEventListener('click',async()=>{
+ try{notice('Conectando ao Google...');const data=await request('/api/account/start',{});if(!data.url||!data.url.startsWith('https://'))throw Error('Endereço de autorização inválido');location.assign(data.url)}
+ catch(err){notice(err.message)}
+});
+$('facebook').addEventListener('click',async()=>{
+ try{notice('Conectando ao Facebook...');const data=await request('/api/auth/facebook/start',{});if(!data.url||!data.url.startsWith('https://'))throw Error('Facebook ainda não configurado');location.assign(data.url)}
+ catch(err){notice(err.message)}
+});
+$('phone').addEventListener('click',()=>{const opened=$('phone-fields').classList.toggle('open');$('phone').setAttribute('aria-expanded',String(opened));});
+$('request').addEventListener('click',async()=>{
+ try{notice('Solicitando código...');await request('/api/auth/phone/request',{phone:$('number').value.trim()});notice('Se o número estiver habilitado, o código será enviado por SMS.')}
+ catch(err){notice(err.message)}
+});
+$('verify').addEventListener('click',async()=>{
+ try{notice('Verificando código...');await request('/api/auth/phone/verify',{phone:$('number').value.trim(),code:$('otp').value.trim()});location.assign('/')}
+ catch(err){notice(err.message)}
+});
+</script></body></html>
