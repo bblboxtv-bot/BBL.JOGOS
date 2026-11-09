@@ -83,6 +83,19 @@ class PreviewServerTests(unittest.TestCase):
                 self.assertIn("__Host-bblia_session=", str(response.headers.get_all("Set-Cookie")))
             mocked.assert_called_once_with("abc123", "code123")
 
+    def test_phone_validated_otp_issues_session(self):
+        with patch.object(preview.phone, "verify_code", return_value={"verified": True, "subject": "phone:+5521999999999"}) as checked:
+            code, body, headers = self.fetch("/api/auth/phone/verify", {"phone": "+5521999999999", "code": "123456"})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body)["authenticated"])
+        self.assertIn("__Host-bblia_session=", headers.get("Set-Cookie", ""))
+        checked.assert_called_once_with("+5521999999999", "123456")
+
+    def test_phone_wrong_code_rejected(self):
+        code, body, headers = self.fetch("/api/auth/phone/verify", {"phone": "+5521999999999", "code": "000000"})
+        self.assertEqual(code, 401)
+        self.assertNotIn("__Host-bblia_session=", headers.get("Set-Cookie", ""))
+
     def test_unknown_route(self):
         code,body,_=self.fetch("/api/auth/unknown",{})
         self.assertEqual(code,404)
