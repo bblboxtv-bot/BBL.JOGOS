@@ -1,17 +1,18 @@
 """Public visual test only: no account data, login, SMS or payments."""
 import os, base64, json
 from pathlib import Path
+from urllib.parse import urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT=Path(__file__).resolve().parent
 HTML=(ROOT/"bblia_login_visual_demo.html").read_bytes()
 LOGO=base64.b64decode((ROOT/"bblia_login_logo_base64.txt").read_text().strip())
 class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
-  if self.path=="/":
+  if urlsplit(self.path).path=="/":
    body,typ,status=HTML,"text/html; charset=utf-8",200
-  elif self.path=="/logo.webp":
+  elif urlsplit(self.path).path=="/logo.webp":
    body,typ,status=LOGO,"image/webp",200
-  elif self.path=="/api/auth/status":
+  elif urlsplit(self.path).path=="/api/auth/status":
    body,typ,status=b'{"authenticated":false}',"application/json",200
   else:
    body,typ,status=b'{"error":"Nao encontrado"}',"application/json",404
