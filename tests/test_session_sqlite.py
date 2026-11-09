@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 import bblia_session_sqlite as store
@@ -12,7 +13,15 @@ class DurableSessionTests(unittest.TestCase):
         store.initialize(self.path)
 
     def tearDown(self):
-        self.tmp.cleanup()
+        # Windows security/indexing processes may briefly hold newly closed SQLite files.
+        for attempt in range(12):
+            try:
+                self.tmp.cleanup()
+                break
+            except PermissionError:
+                if attempt == 11:
+                    raise
+                time.sleep(0.15)
 
     def test_survives_reopen(self):
         sid = store.create(self.path, "phone", "phone:+5521999999999", now=100)
