@@ -56,14 +56,13 @@ class PhoneOtpTests(unittest.TestCase):
     def test_reissued_code_invalidates_previous_code(self):
         sent = []
         number = "+5521999990004"
-        phone.request_code(number, lambda n, m: sent.append(m), now=1000, secret=SECRET)
-        first = sent[-1].split(" é ")[1][:6]
-        phone.request_code(number, lambda n, m: sent.append(m), now=1001, secret=SECRET)
-        second = sent[-1].split(" é ")[1][:6]
-        # Random collision is possible; force deterministic codes in a separate test.
-        if first != second:
-            with self.assertRaises(phone.PhoneAuthError):
-                phone.verify_code(number, first, now=1002, secret=SECRET)
+        with patch.object(phone.secrets, "randbelow", side_effect=[123456, 654321]):
+            phone.request_code(number, lambda n, m: sent.append(m), now=1000, secret=SECRET)
+            first = sent[-1].split(" é ")[1][:6]
+            phone.request_code(number, lambda n, m: sent.append(m), now=1001, secret=SECRET)
+            second = sent[-1].split(" é ")[1][:6]
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.verify_code(number, first, now=1002, secret=SECRET)
         self.assertEqual(phone.verify_code(number, second, now=1002, secret=SECRET)["verified"], True)
 
     def test_invalid_phone_and_missing_secret_fail_closed(self):
