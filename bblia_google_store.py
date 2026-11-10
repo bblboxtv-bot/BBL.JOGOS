@@ -3,10 +3,10 @@ import os, json, time, hashlib
 import bblia_db as db
 
 def _cipher():
-    from cryptography.fernet import Fernet
     key=os.getenv('BBLIA_SESSION_KEY','').strip()
     if not key or not db.using_postgres():
         return None
+    from cryptography.fernet import Fernet
     return Fernet(key.encode())
 
 def _connection():
