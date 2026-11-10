@@ -80,5 +80,20 @@ class PhoneOtpTests(unittest.TestCase):
             phone.request_code(number, lambda n, m: None, now=1003, secret=SECRET)
         self.assertEqual(phone.request_code(number, lambda n, m: None, now=4603, secret=SECRET)["sent"], True)
 
+    def test_expiry_boundary_rejects_code_at_exact_deadline(self):
+        number = "+5521999990007"
+        sent = []
+        phone.request_code(number, lambda n, m: sent.append(m), now=1000, secret=SECRET)
+        code = sent[-1].split(" é ")[1][:6]
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.verify_code(number, code, now=1300, secret=SECRET)
+        self.assertNotIn(number, phone.PENDING)
+
+    def test_missing_sms_transport_fails_closed(self):
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.request_code("+5521999990008", None, now=1000, secret=SECRET)
+        self.assertFalse(phone.PENDING)
+        self.assertFalse(phone.ATTEMPTS)
+
 if __name__ == "__main__":
     unittest.main()
