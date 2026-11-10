@@ -53,5 +53,33 @@ class PhoneOtpTests(unittest.TestCase):
         with self.assertRaises(phone.PhoneAuthError):
             phone.verify_code(number, code, now=1002, secret=SECRET)
 
+    def test_reissued_code_invalidates_previous_code(self):
+        sent = []
+        number = "+5521999990004"
+        phone.request_code(number, lambda n, m: sent.append(m), now=1000, secret=SECRET)
+        first = sent[-1].split(" é ")[1][:6]
+        phone.request_code(number, lambda n, m: sent.append(m), now=1001, secret=SECRET)
+        second = sent[-1].split(" é ")[1][:6]
+        # Random collision is possible; force deterministic codes in a separate test.
+        if first != second:
+            with self.assertRaises(phone.PhoneAuthError):
+                phone.verify_code(number, first, now=1002, secret=SECRET)
+        self.assertEqual(phone.verify_code(number, second, now=1002, secret=SECRET)["verified"], True)
+
+    def test_invalid_phone_and_missing_secret_fail_closed(self):
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.request_code("21999990000", lambda n, m: None, now=1000, secret=SECRET)
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.request_code("+5521999990005", lambda n, m: None, now=1000, secret="short")
+        self.assertFalse(phone.PENDING)
+
+    def test_rate_limit_resets_after_hour(self):
+        number = "+5521999990006"
+        for t in (1000, 1001, 1002):
+            phone.request_code(number, lambda n, m: None, now=t, secret=SECRET)
+        with self.assertRaises(phone.PhoneAuthError):
+            phone.request_code(number, lambda n, m: None, now=1003, secret=SECRET)
+        self.assertEqual(phone.request_code(number, lambda n, m: None, now=4603, secret=SECRET)["sent"], True)
+
 if __name__ == "__main__":
     unittest.main()
