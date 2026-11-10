@@ -168,7 +168,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {"url": result["url"]}, cookie)
             except google_bridge.IsolatedGoogleError:
                 return self.reply(503, {"error": "Google ainda não configurado neste teste isolado."})
-            except Exception:
+            except Exception as exc:
+                print("STAGING_GOOGLE_START_ERROR_TYPE", type(exc).__name__, flush=True)
                 return self.reply(503, {"error": "Google temporariamente indisponível."})
         return self.reply(404, {"error": "Não encontrado."})
 
