@@ -88,6 +88,13 @@ class FacebookOAuthTests(unittest.TestCase):
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
 
+    def test_non_ascii_numeric_profile_id_rejected(self):
+        state = fb.start(now=1000)["state"]
+        def fake_fetch(url):
+            return {"access_token": "test-token"} if "access_token?" in url else {"id": "１２３４５"}
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
+
     def test_mismatched_callback_origin_rejected(self):
         with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://unrelated.example/auth/facebook/callback"}):
             with self.assertRaises(fb.FacebookAuthError):
