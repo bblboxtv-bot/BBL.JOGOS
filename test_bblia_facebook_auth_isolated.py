@@ -52,6 +52,30 @@ class FacebookOAuthTests(unittest.TestCase):
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
 
+    def test_unknown_state_rejected_before_provider_request(self):
+        def forbidden_fetch(_):
+            self.fail("Unknown state must not contact Facebook")
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback("unknown-state", "test-code", now=1001, request_json=forbidden_fetch)
+
+    def test_missing_access_token_rejected(self):
+        state = fb.start(now=1000)["state"]
+        def fake_fetch(url):
+            if "access_token?" in url:
+                return {"error": {"message": "invalid code"}}
+            self.fail("Profile must not be fetched without access token")
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
+
+    def test_provider_network_failure_does_not_reuse_state(self):
+        state = fb.start(now=1000)["state"]
+        def broken_fetch(_):
+            raise OSError("simulated provider outage")
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=broken_fetch)
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1002, request_json=broken_fetch)
+
     def test_mismatched_callback_origin_rejected(self):
         with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://unrelated.example/auth/facebook/callback"}):
             with self.assertRaises(fb.FacebookAuthError):
