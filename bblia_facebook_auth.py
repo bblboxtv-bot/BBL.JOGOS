@@ -78,9 +78,10 @@ def callback(state, code, *, session_key, now=None, request_json=None):
     if not isinstance(state, str) or not isinstance(code, str) or not code or len(code) > 4096:
         raise FacebookAuthError("Autorização inválida.")
     with LOCK:
-        pending = PENDING.pop(state, None)
-    if not pending or pending["expires"] <= now or not secrets.compare_digest(pending["session_digest"], digest):
-        raise FacebookAuthError("Autorização expirada ou reutilizada.")
+        pending = PENDING.get(state)
+        if not pending or pending["expires"] <= now or not secrets.compare_digest(pending["session_digest"], digest):
+            raise FacebookAuthError("Autorização expirada ou reutilizada.")
+        PENDING.pop(state, None)
     app_id, secret, redirect = configuration()
     fetch = request_json or _get_json
     try:
