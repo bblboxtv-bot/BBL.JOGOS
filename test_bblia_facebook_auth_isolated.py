@@ -142,6 +142,17 @@ class FacebookOAuthTests(unittest.TestCase):
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "test-code", session_key=OTHER_SESSION, now=1001, request_json=forbidden_fetch)
 
+    def test_wrong_session_does_not_consume_legitimate_state(self):
+        state = fb.start(session_key=SESSION, now=1000)["state"]
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", session_key=OTHER_SESSION, now=1001,
+                        request_json=lambda *args, **kwargs: self.fail("network called"))
+        self.assertIn(state, fb.PENDING)
+        def fake_fetch(url, *, data=None, headers=None):
+            return {"access_token": "test-token"} if url == fb.TOKEN_URL else {"id": "12345"}
+        result = fb.callback(state, "test-code", session_key=SESSION, now=1002, request_json=fake_fetch)
+        self.assertEqual(result["subject"], "facebook:12345")
+
     def test_missing_or_short_session_rejected(self):
         with self.assertRaises(fb.FacebookAuthError):
             fb.start(session_key="short", now=1000)
