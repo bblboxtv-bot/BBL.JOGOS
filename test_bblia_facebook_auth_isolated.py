@@ -102,6 +102,22 @@ class FacebookOAuthTests(unittest.TestCase):
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
 
+    def test_non_string_access_token_rejected_before_profile_lookup(self):
+        state = fb.start(now=1000)["state"]
+        def fake_fetch(url):
+            if "access_token?" in url:
+                return {"access_token": 12345}
+            self.fail("Profile must not be requested with invalid token")
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
+
+    def test_missing_callback_code_rejected_without_consuming_state(self):
+        state = fb.start(now=1000)["state"]
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "", now=1001,
+                        request_json=lambda _: self.fail("network called"))
+        self.assertIn(state, fb.PENDING)
+
     def test_mismatched_callback_origin_rejected(self):
         with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://unrelated.example/auth/facebook/callback"}):
             with self.assertRaises(fb.FacebookAuthError):
