@@ -54,8 +54,11 @@ def start(*, now=None):
         "state": state,
     }), "state": state}
 
-def _get_json(url):
-    with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=15) as response:
+def _get_json(url, *, data=None, headers=None):
+    request_headers = {"Accept": "application/json", **(headers or {})}
+    if data is not None:
+        request_headers["Content-Type"] = "application/x-www-form-urlencoded"
+    with urlopen(Request(url, data=data, headers=request_headers), timeout=15) as response:
         data = response.read(65537)
     if len(data) > 65536:
         raise FacebookAuthError("Resposta do provedor inválida.")
@@ -72,9 +75,9 @@ def callback(state, code, *, now=None, request_json=None):
     app_id, secret, redirect = configuration()
     fetch = request_json or _get_json
     try:
-        token = fetch(TOKEN_URL + "?" + urlencode({
+        token = fetch(TOKEN_URL, data=urlencode({
             "client_id": app_id, "client_secret": secret,
-            "redirect_uri": redirect, "code": code}))
+            "redirect_uri": redirect, "code": code}).encode("ascii"))
         if not isinstance(token, dict):
             raise FacebookAuthError("Resposta de autorização Facebook inválida.")
         access_token = token.get("access_token", "")
@@ -82,8 +85,8 @@ def callback(state, code, *, now=None, request_json=None):
             raise FacebookAuthError("Provedor não confirmou a autorização.")
         if len(access_token) > 8192:
             raise FacebookAuthError("Provedor não confirmou a autorização.")
-        profile = fetch(PROFILE_URL + "?" + urlencode({
-            "fields": "id,name", "access_token": access_token}))
+        profile = fetch(PROFILE_URL + "?fields=id%2Cname",
+                        headers={"Authorization": "Bearer " + access_token})
     except FacebookAuthError:
         raise
     except Exception as exc:
