@@ -76,6 +76,18 @@ class FacebookOAuthTests(unittest.TestCase):
         with self.assertRaises(fb.FacebookAuthError):
             fb.callback(state, "test-code", now=1002, request_json=broken_fetch)
 
+    def test_malformed_token_payload_rejected_safely(self):
+        state = fb.start(now=1000)["state"]
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=lambda _: ["unexpected"])
+
+    def test_malformed_profile_payload_rejected_safely(self):
+        state = fb.start(now=1000)["state"]
+        def fake_fetch(url):
+            return {"access_token": "test-token"} if "access_token?" in url else ["unexpected"]
+        with self.assertRaises(fb.FacebookAuthError):
+            fb.callback(state, "test-code", now=1001, request_json=fake_fetch)
+
     def test_mismatched_callback_origin_rejected(self):
         with patch.dict(os.environ, {"BBLIA_FACEBOOK_REDIRECT_URI": "https://unrelated.example/auth/facebook/callback"}):
             with self.assertRaises(fb.FacebookAuthError):
