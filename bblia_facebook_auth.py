@@ -91,6 +91,6 @@ def callback(state, code, *, now=None, request_json=None):
     if not isinstance(profile, dict):
         raise FacebookAuthError("Resposta de identidade Facebook inválida.")
     subject = profile.get("id")
-    if not isinstance(subject, str) or (not subject.isascii() or not subject.isdecimal()) or len(subject) > 32:
+    if not isinstance(subject, str) or not subject or (not subject.isascii() or not subject.isdecimal()) or len(subject) > 32:
         raise FacebookAuthError("Identidade Facebook inválida.")
     return {"subject": "facebook:" + subject, "name": str(profile.get("name", ""))[:150]}
