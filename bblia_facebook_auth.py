@@ -35,7 +35,15 @@ def configuration():
         raise FacebookAuthError("Login Facebook ainda não configurado.")
     return app_id, secret, redirect
 
-def start(*, now=None):
+def _session_digest(session_key):
+    """Bind the OAuth transaction to an opaque server-side browser session key."""
+    import hashlib
+    if not isinstance(session_key, str) or len(session_key) < 32 or len(session_key) > 512:
+        raise FacebookAuthError("Sessão de autenticação inválida.")
+    return hashlib.sha256(session_key.encode("utf-8")).hexdigest()
+
+def start(*, session_key, now=None):
+    digest = _session_digest(session_key)
     app_id, _, redirect = configuration()
     now = time.time() if now is None else now
     state = secrets.token_urlsafe(32)
@@ -45,7 +53,7 @@ def start(*, now=None):
                 PENDING.pop(key, None)
         if len(PENDING) >= 1000:
             raise FacebookAuthError("Muitas autorizações simultâneas.")
-        PENDING[state] = {"expires": now + TTL}
+        PENDING[state] = {"expires": now + TTL, "session_digest": digest}
     return {"url": AUTH_URL + "?" + urlencode({
         "client_id": app_id,
         "redirect_uri": redirect,
@@ -64,13 +72,14 @@ def _get_json(url, *, data=None, headers=None):
         raise FacebookAuthError("Resposta do provedor inválida.")
     return json.loads(data)
 
-def callback(state, code, *, now=None, request_json=None):
+def callback(state, code, *, session_key, now=None, request_json=None):
+    digest = _session_digest(session_key)
     now = time.time() if now is None else now
     if not isinstance(state, str) or not isinstance(code, str) or not code or len(code) > 4096:
         raise FacebookAuthError("Autorização inválida.")
     with LOCK:
         pending = PENDING.pop(state, None)
-    if not pending or pending["expires"] <= now:
+    if not pending or pending["expires"] <= now or not secrets.compare_digest(pending["session_digest"], digest):
         raise FacebookAuthError("Autorização expirada ou reutilizada.")
     app_id, secret, redirect = configuration()
     fetch = request_json or _get_json
