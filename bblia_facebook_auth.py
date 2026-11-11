@@ -75,8 +75,12 @@ def callback(state, code, *, now=None, request_json=None):
         token = fetch(TOKEN_URL + "?" + urlencode({
             "client_id": app_id, "client_secret": secret,
             "redirect_uri": redirect, "code": code}))
+        if not isinstance(token, dict):
+            raise FacebookAuthError("Resposta de autorização Facebook inválida.")
         access_token = token.get("access_token", "")
-        if not access_token:
+        if not isinstance(access_token, str) or not access_token:
+            raise FacebookAuthError("Provedor não confirmou a autorização.")
+        if len(access_token) > 8192:
             raise FacebookAuthError("Provedor não confirmou a autorização.")
         profile = fetch(PROFILE_URL + "?" + urlencode({
             "fields": "id,name", "access_token": access_token}))
@@ -84,6 +88,8 @@ def callback(state, code, *, now=None, request_json=None):
         raise
     except Exception as exc:
         raise FacebookAuthError("Não foi possível verificar a conta Facebook.") from exc
+    if not isinstance(profile, dict):
+        raise FacebookAuthError("Resposta de identidade Facebook inválida.")
     subject = profile.get("id")
     if not isinstance(subject, str) or not subject.isdecimal() or len(subject) > 32:
         raise FacebookAuthError("Identidade Facebook inválida.")
