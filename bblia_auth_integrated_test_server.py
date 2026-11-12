@@ -60,13 +60,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 jar.load(self.headers.get("Cookie", ""))
                 expected = jar.get("__Host-bblia_fb_state")
-                valid = expected and secrets.compare_digest(expected.value, state)
+                binding = jar.get("__Host-bblia_fb_binding")
+                valid = (expected and binding and len(binding.value) >= 32
+                         and secrets.compare_digest(expected.value, state))
             except Exception:
                 valid = False
             if not valid:
                 return self.reply(403, {"error": "Estado de autorização inválido."})
             try:
-                verified = facebook.callback(state, code)
+                verified = facebook.callback(state, code, session_key=binding.value)
                 _, session_cookie = auth.login_verified(str(DB), "facebook", verified["subject"])
             except (facebook.FacebookAuthError, ValueError):
                 return self.reply(401, {"error": "Não foi possível confirmar a conta Facebook."})
@@ -74,6 +76,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/")
             self.send_header("Set-Cookie", session_cookie)
             self.send_header("Set-Cookie", "__Host-bblia_fb_state=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+            self.send_header("Set-Cookie", "__Host-bblia_fb_binding=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -137,12 +140,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, result, cookie)
         if path == "/api/auth/facebook/start":
             try:
-                result = facebook.start()
+                binding = secrets.token_urlsafe(32)
+                result = facebook.start(session_key=binding)
                 body = json.dumps({"url": result["url"]}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Set-Cookie", "__Host-bblia_fb_state=" + result["state"] + "; Path=/; Max-Age=600; Secure; HttpOnly; SameSite=Lax")
+                self.send_header("Set-Cookie", "__Host-bblia_fb_binding=" + binding + "; Path=/; Max-Age=600; Secure; HttpOnly; SameSite=Lax")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
