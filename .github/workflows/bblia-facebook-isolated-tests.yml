@@ -1,0 +1,23 @@
+name: BBLIA Facebook OAuth isolated unit tests
+on:
+  push:
+    branches:
+      - bblia-auth-three-providers-isolated-20261109
+    paths:
+      - 'bblia_facebook_auth.py'
+      - 'test_bblia_facebook_auth_isolated.py'
+      - '.github/workflows/bblia-facebook-isolated-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  facebook-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run isolated offline tests (no provider credentials)
+        run: python -m unittest -v test_bblia_facebook_auth_isolated
