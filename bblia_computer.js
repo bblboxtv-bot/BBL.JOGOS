@@ -95,6 +95,21 @@ if(typeof sendMessage==='function'){
  const computerSendMessage=sendMessage;
  sendMessage=async function(){
   const text=prompt.value.trim();
+  const direct=text.match(/^(?:por favor[, ]+)?(leia|ler|liste|listar|mostre)\s+(?:(?:o arquivo|os arquivos (?:da|na) pasta|a pasta|o diretório|o conteúdo (?:de|do arquivo))\s+)?(?:"([a-z]:[\\/][^"]+)"|([a-z]:[\\/].*?))(?=\s+(?:no meu computador|e responda somente|por favor)|$)/i);
+  if(direct && workspaceReady && !send.disabled && !(typeof attachments!=='undefined' && attachments.length)){
+   const path=(direct[2]||direct[3]).trim();
+   const tool=/^(liste|listar)$/i.test(direct[1])||/\b(?:pasta|diretório)\s+[a-z]:/i.test(text)?'list_directory':'read_file';
+   send.disabled=true;
+   try{
+    prompt.value='';add('user',text);history.push({role:'user',content:text});
+    const connection=await computerConnection();
+    if(!connection?.device_id)throw Error('Selecione o computador no menu Computador e TV Box.');
+    const result=await computerPost('read',{tool,path,device_id:connection.device_id,access_token:connection.access_token});
+    add('assistant',result.text);history.push({role:'assistant',content:result.text});
+   }catch(error){const message='Leitura não concluída: '+error.message;add('assistant',message);history.push({role:'assistant',content:message})}
+   finally{send.disabled=false;await saveChat()}
+   return;
+  }
   if(!computerConnectIntent(text))return computerSendMessage();
   if(!workspaceReady||send.disabled)return;
   send.disabled=true;
