@@ -18,9 +18,12 @@ function wantsSelfImprovement(text){
 function wantsAndroidBuild(text){
  if(/^(como\b|o que\b|qual\b|explique\b|me explique\b)/i.test(text.trim()))return false;
  if(/(?:apenas|somente|só|so)\s+(?:o\s+)?c[oó]digo|c[oó]digo[- ]fonte/i.test(text))return false;
- return /\b(android|apk|launcher)\b/i.test(text)&&/(crie|criar|faça|fazer|faz\b|compile|compilar|gere|gerar|gera\b|monte|desenvolv|quero|preciso|transform|consegue|conseguir)/i.test(text);
+ return /\b(android|apk|launcher)\b/i.test(text)&&/(crie|cria|faça|fazer|faz\b|compile|compilar|gere|gerar|gera\b|monte|desenvolv|quero|preciso|transform|consegue|conseguir)/i.test(text);
 }
 
+function wantsPanelIntegration(text){
+ return /\bpainel\b/i.test(text)&&/\b(integr\w*|bot[ae]\w*|coloc\w*|coloque\w*|adicion\w*|cadast\w*|subir|suba|publique|publicar)\b/i.test(text)&&! /^(como\b|explique\b)/i.test(text.trim());
+}
 function wantsAutonomousWork(text,selected=[]){
  if(workspace.preferences.agent===false)return false;
  if(wantsSelfImprovement(text))return true;
@@ -38,7 +41,7 @@ function projectArtifacts(projectId,chat){
 }
 function renderWorkProgress(bubble,data,cancel){
  bubble.replaceChildren();
- const title=document.createElement('strong');title.textContent='⚡ Fazendo por você';bubble.append(title);
+ const title=document.createElement('strong');title.textContent='Progresso do pedido';bubble.append(title);
  const message=document.createElement('p');message.textContent=data.progress||'Analisando o pedido e a referência';bubble.append(message);
  if(data.plan?.length){const list=document.createElement('ol');data.plan.forEach(step=>{const li=document.createElement('li');li.textContent=step;list.append(li)});bubble.append(list)}
  if(cancel)button(bubble,data.status==='cancelling'?'Interrompendo…':'Parar trabalho',cancel).disabled=data.status==='cancelling';
@@ -165,14 +168,14 @@ async function finishWork(bubble,pending){
   if(syntaxErrors.length&&data.status==='completed'){data.status='partial';data.error='Ainda há erros de sintaxe a corrigir: '+syntaxErrors.join('; ')}
   let answer=data.answer||data.error||'O trabalho foi interrompido.';
   if(data.self_improvement)answer='Melhoria da BBLIA preparada para revisão; ainda não publicada.\n\n'+answer;
-  if(data.status!=='completed')answer='Trabalho '+(data.status==='cancelled'?'interrompido':'parcial')+'. '+(data.error||'Os arquivos já criados foram preservados.');
+  if(data.status!=='completed')answer='Trabalho '+(data.status==='cancelled'?'interrompido':'parcial')+'. '+(data.error||(artifacts.length?'Os arquivos disponíveis estão anexados.':'Nenhum arquivo foi entregue.'));
   if(data.limitations?.length)answer+='\n\n'+data.limitations.join('\n');
   if(data.validation&&data.kind!=='computador')answer+='\n\nVerificação automática de estrutura: '+(data.validation.ok?'sem erros detectados.':'há ajustes pendentes.');
   if(artifacts.some(f=>f.name==='index.html'))answer+='\nSintaxe JavaScript da prévia: '+(syntaxErrors.length?syntaxErrors.join('; '):'sem erros detectados nos scripts verificáveis.');
   if(data.runtime_tests?.executed){const t=data.runtime_tests;answer+='\nTestes reais de lógica JavaScript: '+(t.ok?'aprovados ('+(t.passed||0)+' testes).':'falharam: '+(t.error||(t.tests||[]).filter(x=>!x.ok).map(x=>x.name+': '+x.error).join('; ')));answer+='\nEsses testes não verificam a interface visual, APIs externas nem compilação de APK.'}else if(data.kind!=='computador')answer+='\nExecução de código não confirmada nesta entrega. A verificação cobre estrutura e sintaxe.';
   paintResponse(bubble,answer,artifacts,data.sources||[]);
   history.push({role:'assistant',content:answer,artifacts,sources:data.sources||[]});
-  delete chat.workJob;await saveChat();notify(data.status==='completed'?'Trabalho entregue':'Arquivos parciais disponíveis');
+  delete chat.workJob;await saveChat();notify(data.status==='completed'?'Trabalho entregue':artifacts.length?'Arquivos parciais disponíveis':'Trabalho não concluído');
   await replyByVoice(answer);
   return {status:data.status,summary:answer,files:artifacts.map(f=>f.name)};
  }catch(error){
@@ -203,7 +206,7 @@ async function runAutonomousWork(text,selected=[],options={}){
  const label=selected.length?'\n[Referências: '+selected.map(f=>f.name).join(', ')+']':'';
  if(!options.reuseUser){add('user',text+label);history.push({role:'user',content:text+label})}
  const payload={messages:history.slice(-16).map(m=>({role:m.role,content:m.content.slice(0,12000)})),
-  attachments:selected,files,self_improvement:selfImprovement,use_computer:!!options.useComputer,deliver_apk:!selfImprovement&&wantsAndroidBuild(text),preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
+  attachments:selected,files,self_improvement:selfImprovement,use_computer:!!options.useComputer,panel_integration:!selfImprovement&&wantsPanelIntegration(text),deliver_apk:!selfImprovement&&wantsAndroidBuild(text),preferences:workspace.preferences,project:{name:project.name,instructions:project.instructions}};
  while(payload.messages[0]?.role==='assistant')payload.messages.shift();
  send.disabled=true;waitingVoice=true;
  if(typeof syncRealtimeMicrophone==='function')syncRealtimeMicrophone();
@@ -230,10 +233,10 @@ sendMessage=async function(){
  const text=prompt.value.trim();await saveRequestedNickname(text);const project=currentProject();
  const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
  const explicitComputer=text&&typeof wantsComputerWork==='function'&&wantsComputerWork(text)&&!wantsSelfImprovement(text);
- if(text&&(explicitComputer||wantsAndroidBuild(text)||wantsAutonomousWork(text,selected))){
+ if(text&&(explicitComputer||wantsPanelIntegration(text)||wantsAndroidBuild(text)||wantsAutonomousWork(text,selected))){
   if(selected.length>4)return notify('Use até quatro referências por trabalho.');
   let useComputer=false;
-  if(explicitComputer||wantsAndroidBuild(text)){
+  if(explicitComputer||wantsPanelIntegration(text)||wantsAndroidBuild(text)){
    useComputer=typeof computerReady==='function'&&await computerReady();
    if(!useComputer){
     if(typeof queueComputerTask==='function')await queueComputerTask(text,selected);
@@ -260,7 +263,7 @@ async function handleRealtimeWork(call,channel){
   const project=currentProject();const selected=[...(project?.files||[]),...(attachments.length?attachments:(currentChat()?.files||[]))];
   if(typeof args.pedido!=='string'||args.pedido.length<5)throw Error('Descreva o trabalho que deseja criar.');
   if(selected.length>4)throw Error('Use até quatro referências por trabalho.');
-  const useComputer=!wantsSelfImprovement(args.pedido)&&((typeof wantsComputerWork==='function'&&wantsComputerWork(args.pedido))||wantsAndroidBuild(args.pedido));
+  const useComputer=!wantsSelfImprovement(args.pedido)&&((typeof wantsComputerWork==='function'&&wantsComputerWork(args.pedido))||wantsPanelIntegration(args.pedido)||wantsAndroidBuild(args.pedido));
   if(useComputer&&!await computerReady()){
    if(typeof queueComputerTask==='function')await queueComputerTask(args.pedido,selected);
    result={status:'blocked',summary:computerConnectionIssue||'Conecte sua conta Commander na BBLIA para executar este pedido.',executed:false};
