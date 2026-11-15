@@ -223,7 +223,7 @@ def run_job(job, safe, data, files):
                 job['self_improvement'] = True
                 job['publication'] = 'not_published'
         computer = None
-        if data.get('use_computer') and not self_improvement:
+        if (data.get('use_computer') or data.get('deliver_apk') or data.get('panel_integration')) and not self_improvement:
             progress(job, 'Conectando ao computador autorizado pelo Commander')
             try:
                 computer = CommanderClient(data.get('computer_connection')).initialize()
@@ -402,6 +402,9 @@ def run_job(job, safe, data, files):
                             report['checks'] = ['chamadas ao computador registradas']
                             if not report['ok']:
                                 report['errors'].append('Nenhuma chamada ao computador foi confirmada.')
+                        if computer and not any(action.get('confirmed') for action in computer.actions):
+                            report['ok'] = False
+                            report['errors'].append('O computador ainda não confirmou nenhuma ação.')
                         if computer and (getattr(computer,'pending_calls',None) or getattr(computer,'pending_processes',None)):
                             report['ok']=False
                             report['errors'].append('Ainda há chamadas ou processos no computador sem resultado final. Consulte get_tool_result ou read_process_output antes de concluir.')
@@ -437,6 +440,9 @@ def run_job(job, safe, data, files):
             job['sources'] = sources
             if job['cancelled']:
                 job.update(status='cancelled', progress='Trabalho interrompido. Arquivos parciais preservados.')
+            elif final and data.get('panel_integration'):
+                job.update(status='partial', progress='Integração sem confirmação do painel',
+                           error='A BBLIA ainda não recebeu uma confirmação verificável do cadastro pelo painel de destino.', **final)
             elif final:
                 job.update(status='completed', progress='Arquivos prontos', **final)
             else:
