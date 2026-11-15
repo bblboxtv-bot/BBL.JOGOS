@@ -12,7 +12,7 @@ from bblia_self import CREATIVE_GUIDANCE
 from bblia_apk import inspect_apk, MAX_APK, APK_SLOTS
 from bblia_zip import inspect_zip, MAX_ZIP, ZIP_SLOTS
 import tempfile
-from bblia_computer import oauth_start, oauth_token, list_computers, ComputerError
+from bblia_computer import CommanderClient, oauth_start, oauth_token, list_computers, ComputerError
 from bblia_agent import start_work, get_work, cancel_work, WorkError
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -342,6 +342,33 @@ class Handler(BaseHTTPRequestHandler):
   if urlsplit(self.path).path in ('/api/google/start','/api/google/disconnect','/api/google/query','/api/account/start','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync'):return self.google_route()
   if self.path=='/api/apk/analyze':return self.apk_inspect()
   if self.path=='/api/zip/analyze':return self.zip_inspect()
+  if self.path=='/api/computer/read':
+   try:
+    import ntpath
+    size=int(self.headers.get('Content-Length','0'))
+    if not 1<=size<=32000:return self.reply(413,{'error':'Pedido muito grande.'})
+    data=json.loads(self.rfile.read(size))
+    target=data['path']
+    tool=data['tool']
+    if tool not in ('read_file','list_directory') or not isinstance(target,str) or not re.match(r'^[A-Za-z]:[\\/]',target) or '\x00' in target:
+     return self.reply(400,{'error':'Informe um caminho absoluto do Windows.'})
+    client=CommanderClient(data)
+    if not client.device_id:return self.reply(400,{'error':'Selecione o computador.'})
+    client.initialize()
+    args={'path':ntpath.normpath(target)}
+    args.update({'length':200} if tool=='read_file' else {'depth':1})
+    result=client.call(tool,args)
+    for _ in range(5):
+     output='\n'.join(item.get('text','') for item in result.get('content',[]) if item.get('type')=='text')
+     pending=re.search(r'call_id="([\w-]{16,100})"',output)
+     if not pending:break
+     result=client.call('get_tool_result',{'call_id':pending[1]})
+    else:return self.reply(504,{'error':'O Commander ainda não confirmou a leitura.'})
+    if result.get('isError') or not output:return self.reply(422,{'error':output[:1200] or 'O Commander não devolveu texto.'})
+    return self.reply(200,{'text':output[:30000]})
+   except ComputerError as exc:return self.reply(exc.status,{'error':str(exc)})
+   except (ValueError,KeyError,TypeError):return self.reply(400,{'error':'Pedido de leitura inválido.'})
+   except Exception:return self.reply(502,{'error':'Falha ao consultar o Commander.'})
   if self.path in ('/api/computer/oauth/start','/api/computer/oauth/token','/api/computer/oauth/refresh','/api/computer/devices'):
    try:
     length=int(self.headers.get('Content-Length','0'))
