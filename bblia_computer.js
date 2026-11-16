@@ -155,6 +155,7 @@ function computerDevices(result){
  return devices;
 }
 async function showComputerConnection(errorMessage=''){
+ if(window.BBLIA_LOCAL_RELAY)return showLocalWorkerConnection();
  const connection=await readComputer();
  const el=modalContent('Computador e TV Box',connection?.device_id?'Computador selecionado: '+(connection.device_name||connection.device_id):'Conecte sua própria conta Commander para a BBLIA usar os arquivos e o terminal do seu computador.');
  if(typeof errorMessage==='string'&&errorMessage){const error=document.createElement('p');error.setAttribute('role','alert');error.textContent=errorMessage;el.append(error)}
@@ -237,3 +238,10 @@ computerReady=async function(){
 };
 const remoteRequestWork=requestWork;
 requestWork=async function(payload){return window.BBLIA_LOCAL_RELAY?computerRequestWork(payload):remoteRequestWork(payload)};
+
+async function showLocalWorkerConnection(){
+ const el=modalContent('Computador da BBLIA','Processamento gratuito no seu computador. Mantenha o computador ligado para usar as ferramentas.');
+ const line=document.createElement('p');el.append(line);
+ const refresh=async()=>{try{const state=await accountRequest('/api/local-worker/status');line.textContent=state.connected?'Computador conectado ao executor BBLIA.':'Computador desconectado. Abra o executor BBLIA no computador.'}catch(e){line.textContent=e.message}};
+ button(el,'Verificar conexão',refresh);await refresh();
+}
