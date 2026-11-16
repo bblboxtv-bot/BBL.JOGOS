@@ -38,7 +38,7 @@ def sweep():
         job = JOBS[key]
         if now - job['created'] > TTL:
             del JOBS[key]
-        elif job['status'] in ('queued', 'processing', 'cancelling') and now - job['updated'] > 90 and (job['status'] != 'queued' or not connected()):
+        elif job['status'] in ('queued', 'processing', 'cancelling') and now - job['updated'] > (900 if job['kind'] == 'work' and job['status'] in ('processing', 'cancelling') else 90) and (job['status'] != 'queued' or not connected()):
             job.update(status='failed', error='A comunicação com o computador foi interrompida.', progress='Computador sem resposta')
             job['event'].set()
 
