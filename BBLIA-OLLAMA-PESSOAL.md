@@ -10,7 +10,7 @@ Esta alteração prepara a interface já publicada para usar o Ollama e as ferra
 - `bblia_android_compat.py`: adapta Activity e views geradas para o SDK instalado, preservando a lógica dos eventos. Recursos não entregues e bibliotecas não suportadas geram erro explícito.
 - `bblia_android_local_job.py`: geração, compilação, verificação de assinatura e entrega do APK. Projetos avançados com dependências e atualização de anexos não estão aprovados nessa rota.
 
-## Ativação preparada, ainda não executada
+## Ativação da versão de testes
 
 1. Manter o serviço `bblia-teste` e o callback Google existentes. A branch ligada ao auto deploy não deve receber alterações sem aprovação do proprietário.
 2. Disponibilizar os arquivos desta branch na versão de testes aprovada.
@@ -22,9 +22,13 @@ Sem as duas variáveis de ativação, as rotas e o provedor anteriores continuam
 
 ## Verificação
 
-- 11 testes da ponte passaram: identidade do proprietário, segredo do executor, vínculo de lease, duplicação, modo offline, cancelamento, origem do navegador, upload/download com hash, proteção do download e provedor gratuito no executor.
-- 5 testes do adaptador Android passaram, incluindo preservação do incremento e rejeição de recursos ausentes.
+- 15 testes da ponte passaram: identidade do proprietário, segredo do executor, vínculo de lease, duplicação, modo offline, cancelamento, origem do navegador, upload/download com hash, proteção do download e provedor gratuito no executor.
+- 5 testes do adaptador Android passaram, incluindo preservação do incremento e rejeição de recursos ausentes. Mais 3 testes verificaram progresso, cancelamento e integridade do stream de geração.
 - Python compilou e os três arquivos JavaScript modificados passaram em `node --check`.
 - Na suíte legada selecionada, 35 de 37 testes passaram. Os dois testes restantes também falham no código original do commit base: o fixture Google não cria identidade OpenID e o fixture de upload usa uma chamada sem autenticação. Não foram alterados para mascarar o resultado.
 
-Esses testes usam identidades simuladas e arquivos de fixture onde indicado. Não comprovam login Google ao vivo, sincronização entre três aparelhos, qualidade do microfone real ou instalação Android. A aplicação em uso e a produção não foram alteradas nesta preparação.
+O fluxo local completo com `qwen2.5-coder:1.5b` gerou, compilou, assinou e entregou o APK de um contador em 201,62 segundos no computador autorizado. O hash do download foi conferido. O modelo de conversa foi preservado; o modelo de programação fica selecionável por `BBLIA_ANDROID_MODEL`. A instalação Android e o funcionamento no aparelho ainda não foram testados.
+
+Os testes de autenticação e transporte usam identidades simuladas e arquivos de fixture onde indicado. Não comprovam login Google ao vivo, sincronização entre três aparelhos, qualidade do microfone real ou instalação Android. A aplicação em uso e a produção não foram alteradas nesta preparação.
+
+Para preparar o modelo de programação, use `python bblia_prepare_coder.py` no computador com Ollama já instalado. O executor lê sua chave privada em `%LOCALAPPDATA%/BBLIA/worker-private.json`; esse arquivo não pertence ao repositório. `bblia_start_worker.py` inicia uma única instância e usa a cópia local existente.

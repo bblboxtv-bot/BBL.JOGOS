@@ -38,7 +38,7 @@ def sweep():
         job = JOBS[key]
         if now - job['created'] > TTL:
             del JOBS[key]
-        elif job['status'] in ('queued', 'processing', 'cancelling') and now - job['updated'] > 90:
+        elif job['status'] in ('queued', 'processing', 'cancelling') and now - job['updated'] > 90 and (job['status'] != 'queued' or not connected()):
             job.update(status='failed', error='A comunicação com o computador foi interrompida.', progress='Computador sem resposta')
             job['event'].set()
 
@@ -48,6 +48,8 @@ def enqueue(kind, data, owner):
         sweep()
         if not connected():
             raise ValueError('O computador da BBLIA está desconectado. Abra o executor local; seu pedido continua na conversa.')
+        if kind != 'work' and any(j['kind'] == 'work' and j['status'] in ('processing', 'cancelling') for j in JOBS.values()):
+            raise ValueError('O computador está concluindo um trabalho. Aguarde ou interrompa esse trabalho antes de enviar outra solicitação.')
         if sum(j['status'] in ('queued', 'processing', 'cancelling') for j in JOBS.values()) >= 2:
             raise ValueError('Há trabalhos em andamento no computador. Aguarde a conclusão.')
         if len(JOBS) >= MAX_JOBS:
@@ -112,6 +114,9 @@ def worker_post(handler, path):
     with LOCK:
         LAST_SEEN = time.monotonic()
         sweep()
+        if path == '/api/local-worker/ping':
+            handler.reply(200, {'ok': True})
+            return
         if path == '/api/local-worker/poll':
             job = next((j for j in JOBS.values() if j['status'] == 'queued'), None)
             if not job:
@@ -194,6 +199,10 @@ def route_post(handler):
         return True
     if not enabled():
         return False
+    if path in ('/api/realtime-token', '/api/image', '/api/media/jobs'):
+        if handler.require_account(admin=True):
+            handler.reply(409, {'error': 'Este modo pessoal usa voz e processamento locais. Esta função externa não está habilitada.'})
+        return True
     routes = {'/api/chat': 'chat', '/api/work/jobs': 'work', '/api/transcribe': 'transcribe', '/api/voice': 'voice'}
     cancel = path.startswith('/api/work/jobs/local-') and path.endswith('/cancel')
     if path not in routes and not cancel:

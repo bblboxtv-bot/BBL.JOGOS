@@ -126,14 +126,19 @@ class Worker:
 
     def run(self):
         print('Executor BBLIA iniciado; conexão somente de saída, sem API paga.', flush=True)
+        connected = False
         while True:
             try:
                 job = self.remote('/api/local-worker/poll', {})['job']
+                if not connected:
+                    print('Executor BBLIA conectado ao servidor de testes.', flush=True)
+                    connected = True
                 if job:
                     self.execute(job)
                 else:
                     time.sleep(3)
             except Exception as exc:
+                connected = False
                 print('Executor aguardando conexão: ' + type(exc).__name__, flush=True)
                 time.sleep(8)
 

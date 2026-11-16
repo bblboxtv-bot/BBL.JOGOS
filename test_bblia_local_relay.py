@@ -186,6 +186,35 @@ class RelayTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             worker.upload_artifacts({'id': 'x', 'lease': 'x'}, {'artifacts': [{'download_url': 'http://localhost/private'}]}, 'private-local-cookie')
 
+    def test_cached_clients_cannot_start_paid_realtime(self):
+        with patch.object(app.Handler, 'realtime_token', side_effect=AssertionError('paid realtime must not run')):
+            self.assertEqual(self.request('/api/realtime-token', {'paid_authorized': True}, owner=True)[0], 409)
+
+    def test_busy_computer_does_not_hold_chat_until_timeout(self):
+        self.poll()
+        self.request('/api/work/jobs', {'messages': []}, owner=True)
+        self.poll()
+        code, body = self.request('/api/chat', {'messages': [{'role': 'user', 'content': 'Oi'}]}, owner=True)
+        self.assertEqual(code, 503)
+        self.assertIn('concluindo', body['error'])
+
+    def test_queued_work_does_not_expire_while_worker_is_busy_and_alive(self):
+        self.poll()
+        self.request('/api/work/jobs', {'messages': []}, owner=True)
+        self.poll()
+        ident = self.request('/api/work/jobs', {'messages': []}, owner=True)[1]['id']
+        relay.JOBS[ident]['updated'] -= 91
+        result = self.request('/api/work/jobs/' + ident, owner=True)[1]
+        self.assertEqual(result['status'], 'processing')
+        self.assertEqual(relay.JOBS[ident]['status'], 'queued')
+
+    def test_health_ping_does_not_claim_a_user_job(self):
+        self.poll()
+        ident = self.request('/api/work/jobs', {'messages': []}, owner=True)[1]['id']
+        self.assertEqual(self.request('/api/local-worker/ping', {}, worker=True), (200, {'ok': True}))
+        self.assertEqual(relay.JOBS[ident]['status'], 'queued')
+        self.assertEqual(self.poll()['id'], ident)
+
 
 if __name__ == '__main__':
     unittest.main()

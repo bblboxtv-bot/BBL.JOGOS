@@ -1,5 +1,5 @@
 """Geracao de UI Android em estrutura Java verificada, sem dependencias externas."""
-import json,pathlib,urllib.request,uuid,time,html,re
+import json,pathlib,urllib.request,uuid,time,html,re,os
 import bblia_android_build as builder
 import bblia_apk_delivery as delivery
 from bblia_android_compat import adapt_java
@@ -12,17 +12,38 @@ def wrap_java(body,package):
     if 'super.onCreate' in body:raise ValueError('O esqueleto ja chama super.onCreate; retorne somente o corpo da interface.')
     return ('package '+package+';\nimport android.app.Activity;import android.os.Bundle;import android.view.*;import android.widget.*;import android.content.*;import android.graphics.Color;import java.util.*;\n'
             'public class MainActivity extends Activity { @Override public void onCreate(Bundle savedInstanceState) {super.onCreate(savedInstanceState);\n'+body+'\n}}')
+
+def generate_stream(body,job,agent,timeout=600):
+    body=dict(body);body['stream']=True
+    request=urllib.request.Request('http://127.0.0.1:11434/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+    parts=[];size=0;last=0;started=time.monotonic();final=None
+    with urllib.request.urlopen(request,timeout=timeout) as response:
+        for line in response:
+            if job['cancelled']:raise InterruptedError('Geracao interrompida pelo usuario.')
+            if time.monotonic()-started>timeout:raise TimeoutError('A geracao excedeu o tempo desta etapa; arquivos parciais preservados.')
+            chunk=json.loads(line)
+            if chunk.get('error'):raise ValueError(str(chunk['error'])[:1000])
+            text=chunk.get('message',{}).get('content','')
+            if text:
+                parts.append(text);size+=len(text)
+                if size>150000:raise ValueError('Codigo gerado excede o limite desta etapa.')
+                if size-last>=200:
+                    agent.progress(job,'Ollama escrevendo o aplicativo: '+str(size)+' caracteres')
+                    last=size
+            if chunk.get('done'):final=chunk;break
+    if final is None:raise ValueError('A resposta do modelo foi interrompida antes de terminar.')
+    final['message']={'role':'assistant','content':''.join(parts)}
+    return final
+
 def run(job,messages,data,files,agent):
     folder=ROOT/('gerado-'+uuid.uuid4().hex[:12]);folder.mkdir(parents=True)
     package='com.bblia.gerado.p'+uuid.uuid4().hex[:8]
-    instruction=('Voce gera UI Android Java. Retorne JSON {title,java,limitations}. '
-      'java deve ser SOMENTE o corpo do metodo onCreate de uma Activity ja pronta. '
-      'NAO gere package, import, classe, metodos, super.onCreate, R, XML, AppCompatActivity ou AndroidX. '
-      'Todas as views sao criadas em Java: LinearLayout layout=new LinearLayout(this); layout.setOrientation(1); '
-      'TextView texto=new TextView(this); Button botao=new Button(this); layout.addView(texto); layout.addView(botao); setContentView(layout); '
-      'Use View.OnClickListener com variaveis final ou arrays finais para mudar estado. '
-      'Implemente exatamente a funcao pedida, nao apenas uma tela com texto. Registre servicos externos ausentes em limitations. '
-      'Use somente Android SDK e Java 8. O esqueleto importa android.widget.*, android.view.* e android.content.*.')
+    instruction=('You are an Android Java programmer. Return JSON with title, java, limitations. '
+      'java contains complete working source for MainActivity extending android.app.Activity, or the complete statements inside an existing onCreate method. '
+      'Build the interface programmatically using android.widget.LinearLayout, TextView, Button and other standard SDK widgets. '
+      'Use setContentView(layout), addView and View.OnClickListener. Mutable values captured by listeners use final arrays or instance fields. '
+      'Implement the exact requested functionality, including initial values. Keep the application concise and finish every method and listener. '
+      'The installed compiler provides the Android SDK and Java 8. Record unavailable external services in limitations.')
     original=messages[-1].get('content','') if messages else ''
     history=[{'role':'system','content':instruction},{'role':'user','content':original}]
     started=time.monotonic()
@@ -33,9 +54,9 @@ def run(job,messages,data,files,agent):
         for attempt in range(2):
             if job['cancelled']:break
             agent.progress(job,'Ollama criando a funcionalidade Android' if attempt==0 else 'Corrigindo o codigo com base no erro verificado')
-            body={'model':'qwen2.5:1.5b','messages':history,'stream':False,'format':SCHEMA,'keep_alive':'30m','options':{'temperature':0,'num_ctx':2048,'num_predict':1200,'num_thread':1}}
-            request=urllib.request.Request('http://127.0.0.1:11434/api/chat',data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
-            with urllib.request.urlopen(request,timeout=240) as response:raw=json.load(response)
+            body={'model':os.getenv('BBLIA_ANDROID_MODEL','qwen2.5-coder:1.5b'),'messages':history,'stream':False,'format':SCHEMA,'keep_alive':'30m','options':{'temperature':0,'num_ctx':3072,'num_predict':1800,'num_thread':1}}
+            raw=generate_stream(body,job,agent)
+            (folder/('geracao-'+str(attempt+1)+'-metadata.json')).write_text(json.dumps({k:raw.get(k) for k in ('model','done_reason','eval_count','prompt_eval_count','total_duration','eval_duration')}),encoding='utf-8')
             text=raw.get('message',{}).get('content','')
             (folder/('geracao-'+str(attempt+1)+'.json')).write_text(text,encoding='utf-8')
             try:
@@ -62,7 +83,8 @@ def run(job,messages,data,files,agent):
                 history=[{'role':'system','content':instruction},{'role':'user','content':original+'\nCorrija este corpo Java: '+str(generated.get('java','') if 'generated' in locals() else text)[:4000]+'\nErro verificado: '+str(exc)[-1400:]}]
                 with agent.LOCK:job['error']=str(exc)[:2000]
         with agent.LOCK:job.update(status='cancelled' if job['cancelled'] else 'partial',progress='Arquivos preservados; APK ainda nao concluido')
+    except InterruptedError as exc:
+        with agent.LOCK:job.update(status='cancelled',progress='Geracao interrompida',error=str(exc))
     except Exception as exc:
         with agent.LOCK:job.update(status='partial' if job['artifacts'] else 'failed',progress='Geracao local nao concluida',error=str(exc)[:2000])
     finally:agent.SLOTS.release()
-
