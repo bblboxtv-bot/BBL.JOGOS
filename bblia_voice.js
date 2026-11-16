@@ -507,3 +507,13 @@ replyByVoice=async function(answer){if(realtimePC){waitingVoice=false;syncRealti
 
 
 
+
+
+// Speak locally on the phone/PC when the free private worker is selected.
+const cloudServerSpeech=speak;
+speak=async function(text){
+ if(!window.BBLIA_LOCAL_RELAY||!('speechSynthesis' in window))return cloudServerSpeech(text);
+ stopSpeaking();const token=voiceToken;voiceSpeaking=true;startVoiceBarge(token);
+ try{for(const chunk of speechChunks(text)){if(token!==voiceToken)return;await deviceSpeech(chunk,token)}}
+ finally{if(token===voiceToken){voiceSpeaking=false;stopVoiceBarge()}}
+};
