@@ -1,3 +1,4 @@
+import bblia_local_relay as local_relay
 import bblia_tv as tv_remote
 import bblia_apk_delivery as apk_delivery
 from bblia_speech import synthesize, transcribe, SpeechError
@@ -140,6 +141,7 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,OSError) as exc:return self.reply(400,{'error':str(exc)[:300]})
   except Exception:return self.reply(400,{'error':'O arquivo recebido não é um APK válido.'})
  def do_GET(self):
+  if local_relay.route_get(self):return
   path=urlsplit(self.path).path
   if path=='/api/usage':
    if not self.require_account():return
@@ -183,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
    authenticated=google.status(self.headers.get('Cookie','')).get('authenticated',False)
    if not authenticated:
     page=b"""<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BBLIA - Login</title><style>body{font:16px system-ui;background:#080d29;color:white;display:grid;place-items:center;min-height:95vh;margin:0}main{text-align:center;padding:28px;max-width:390px}h1{color:#e9b85d;font-size:44px}button{background:#e9b85d;color:#17152c;border:0;border-radius:12px;padding:15px 28px;font-weight:700;font-size:17px}p{line-height:1.6}</style><main id="bblia-login-gate"><h1>BBLIA</h1><p>Entre com sua conta Google para utilizar o aplicativo.</p><button id="login" type="button">Entrar com Google</button><p id="feedback" role="status"></p></main><script>document.getElementById('login').onclick=async()=>{const feedback=document.getElementById('feedback');feedback.textContent='Conectando...';try{const mobile=!!window.BBLAndroid;const r=await fetch(mobile?'/api/mobile/begin':'/api/account/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(!r.ok||!(mobile?d.browser_url:d.url))throw Error(d.error||'Login indisponivel');if(mobile){sessionStorage.setItem('bblia_mobile_tx',d.transaction);sessionStorage.setItem('bblia_mobile_proof',d.proof);window.BBLAndroid.openLogin(d.browser_url)}else location.href=d.url}catch(e){feedback.textContent=e.message}};window.bbliaMobileReturn=async(tx)=>{const saved=sessionStorage.getItem('bblia_mobile_tx');const proof=sessionStorage.getItem('bblia_mobile_proof');if(!tx||tx!==saved||!proof)return;try{const r=await fetch('/api/mobile/redeem',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({transaction:tx,proof})});if(!r.ok)throw Error('Nao foi possivel confirmar o login');sessionStorage.removeItem('bblia_mobile_tx');sessionStorage.removeItem('bblia_mobile_proof');location.replace('/')}catch(e){document.getElementById('feedback').textContent=e.message}}</script></html>"""
-   else:page=HTML
+   else:page=HTML.replace(b'<head>',b'<head><script>window.BBLIA_LOCAL_RELAY=true;</script>',1) if local_relay.enabled() and google.status(self.headers.get('Cookie','')).get('role')=='admin' else HTML
    self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store, max-age=0');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page)
   elif urlsplit(self.path).path=='/bblia-logo.jpg':
    self.send_response(200);self.send_header('Content-Type','image/jpeg');self.send_header('Cache-Control','public, max-age=86400');self.send_header('Content-Length',str(len(LOGO_JPG)));self.end_headers();self.wfile.write(LOGO_JPG)
@@ -327,6 +329,7 @@ class Handler(BaseHTTPRequestHandler):
    self.connection.settimeout(previous_timeout)
    ZIP_SLOTS.release()
  def do_POST(self):
+  if local_relay.route_post(self):return
   path=urlsplit(self.path).path
   if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem') and not self.require_account():return
   if path.startswith('/api/') and path not in ('/api/account/start','/api/google/start','/api/google/disconnect','/api/account/logout','/api/mobile/begin','/api/mobile/redeem','/api/sync','/api/chat') and not self.require_account(feature=path):return
@@ -560,6 +563,7 @@ if __name__=='__main__':
  runtime.start_prepare()
  threading.Thread(target=documents.prepare,daemon=True).start()
  ThreadingHTTPServer(('0.0.0.0',int(os.getenv('PORT','10000'))),Handler).serve_forever()
+
 
 
 

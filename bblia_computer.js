@@ -226,3 +226,14 @@ async function initComputerConnection(){
 }
 initComputerConnection();
 
+
+
+// Reuse the existing authenticated owner session for the private local worker.
+const remoteComputerReady=computerReady;
+computerReady=async function(){
+ if(!window.BBLIA_LOCAL_RELAY)return remoteComputerReady();
+ try{const result=await accountRequest('/api/local-worker/status');computerConnectionIssue=result.connected?'':'Abra o executor BBLIA no computador para continuar.';return result.connected}
+ catch(e){computerConnectionIssue=e.message;return false}
+};
+const remoteRequestWork=requestWork;
+requestWork=async function(payload){return window.BBLIA_LOCAL_RELAY?computerRequestWork(payload):remoteRequestWork(payload)};
